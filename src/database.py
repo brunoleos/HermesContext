@@ -6,6 +6,7 @@ e hybrid search (vector + keyword).
 
 from __future__ import annotations
 
+import array
 import json
 import logging
 from contextlib import contextmanager
@@ -229,6 +230,13 @@ class Database:
                 "has_more": total > offset + len(items),
             }
 
+    # ── Helpers ────────────────────────────────────
+
+    @staticmethod
+    def _to_vector(embedding: list[float]) -> array.array:
+        """Converte list[float] para array.array('f') — formato aceito pelo oracledb thin mode para VECTOR."""
+        return array.array("f", embedding)
+
     # ── Chunks ──────────────────────────────────────
 
     def insert_chunks(
@@ -237,9 +245,6 @@ class Database:
         chunks: list[dict],
     ) -> int:
         """Insere chunks com embeddings um a um.
-
-        executemany não suporta bind de VECTOR no thin mode,
-        então usamos execute em loop (5-20 chunks = impacto desprezível).
 
         Cada dict em chunks deve ter:
           chunk_text, enriched_text, chunk_index, token_count, embedding
@@ -263,7 +268,7 @@ class Database:
                         "chunk_text": c["chunk_text"],
                         "enriched_text": c.get("enriched_text"),
                         "token_count": c.get("token_count"),
-                        "embedding": c["embedding"],
+                        "embedding": self._to_vector(c["embedding"]),
                     },
                 )
             return len(chunks)
@@ -288,8 +293,8 @@ class Database:
                     WITH TARGET ACCURACY 95
                 """,
                 {
-                    "qvec": query_embedding,
-                    "qvec2": query_embedding,
+                    "qvec": self._to_vector(query_embedding),
+                    "qvec2": self._to_vector(query_embedding),
                     "topk": top_k,
                 },
             )
