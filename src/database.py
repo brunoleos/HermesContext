@@ -58,6 +58,10 @@ INDEX_DDL = [
     """
     CREATE INDEX IF NOT EXISTS idx_chunk_doc ON chunks(document_id)
     """,
+    """
+    CREATE INDEX idx_chunk_text ON chunks(chunk_text)
+        INDEXTYPE IS CTXSYS.CONTEXT
+    """,
 ]
 
 
