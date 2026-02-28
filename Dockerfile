@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache
         "redis>=5.0.0" \
         "celery[redis]>=5.4.0" \
         "httpx>=0.27.0" \
+        "uvicorn>=0.30.0" \
         "numpy>=1.26.0"
 
 COPY src/ src/

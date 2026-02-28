@@ -554,11 +554,26 @@ def main() -> None:
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        mcp.run(
-            transport="streamable_http",
-            host=host,
-            port=port,
-        )
+        # Tentar obter ASGI app e rodar com uvicorn (controle total de host/port)
+        import uvicorn
+
+        app = None
+        for method_name in ("streamable_http_app", "sse_app", "http_app"):
+            method = getattr(mcp, method_name, None)
+            if method is not None:
+                app = method()
+                logger.info("Usando %s()", method_name)
+                break
+
+        if app is not None:
+            uvicorn.run(app, host=host, port=port)
+        else:
+            # Fallback: mcp.run() sem host (ouve em 127.0.0.1)
+            logger.warning(
+                "Nenhum método *_app() encontrado no FastMCP. "
+                "Usando mcp.run() — pode não ouvir em 0.0.0.0"
+            )
+            mcp.run(transport="streamable_http", port=port)
 
 
 if __name__ == "__main__":
