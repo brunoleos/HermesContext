@@ -316,11 +316,25 @@ class Database:
             ]
 
     def keyword_search(self, query: str, top_k: int = 20) -> list[dict]:
-        """Busca por keyword (Oracle Text full-text search)."""
+        """Busca por keyword (Oracle Text full-text search).
+
+        Sanitiza a query extraindo palavras e juntando com OR.
+        Caracteres especiais do Oracle Text são removidos.
+        """
+        import re
+
+        # Extrair apenas palavras (letras + acentos), ignorar pontuação e operadores
+        words = re.findall(r"[a-zA-ZÀ-ÿ]+", query)
+        # Filtrar stopwords curtas
+        words = [w for w in words if len(w) > 2]
+        if not words:
+            return []
+
+        # Cada palavra entre {} = literal (sem interpretação de operadores)
+        oracle_query = " OR ".join(f"{{{w}}}" for w in words)
+
         with self.get_conn() as conn:
             cursor = conn.cursor()
-            # Escape básico para Oracle Text query
-            safe_query = query.replace("'", "''")
             cursor.execute(
                 f"""
                 SELECT c.id, c.chunk_text, c.enriched_text,
@@ -328,7 +342,7 @@ class Database:
                        SCORE(1) AS text_score
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.id
-                WHERE CONTAINS(c.chunk_text, '{safe_query}', 1) > 0
+                WHERE CONTAINS(c.chunk_text, '{oracle_query}', 1) > 0
                 ORDER BY SCORE(1) DESC
                 FETCH FIRST :topk ROWS ONLY
                 """,
