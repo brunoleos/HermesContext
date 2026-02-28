@@ -69,11 +69,9 @@ class Database:
     # ── Lifecycle ───────────────────────────────────
 
     def connect(self) -> None:
-        """Cria connection pool com Oracle Wallet (mTLS)."""
+        """Cria connection pool com Oracle Wallet (mTLS) — modo thin (sem Oracle Client)."""
         if self._pool is not None:
             return
-
-        oracledb.init_oracle_client()
 
         self._pool = oracledb.create_pool(
             user=settings.oracle_user,
@@ -86,7 +84,7 @@ class Database:
             max=8,
             increment=1,
         )
-        logger.info("Oracle connection pool criado (%d-%d conns)", 2, 8)
+        logger.info("Oracle connection pool criado (thin mode, %d-%d conns)", 2, 8)
 
     def close(self) -> None:
         if self._pool:

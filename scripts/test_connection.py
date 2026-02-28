@@ -38,9 +38,8 @@ def main() -> None:
             sys.exit(1)
 
     # 2. Conectar
-    print("\n[2/4] Conectando...")
+    print("\n[2/4] Conectando (thin mode, sem Oracle Client)...")
     try:
-        oracledb.init_oracle_client()
         conn = oracledb.connect(
             user=settings.oracle_user,
             password=settings.oracle_password,
