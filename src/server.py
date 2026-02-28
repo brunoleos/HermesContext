@@ -39,7 +39,7 @@ logger = logging.getLogger("hermes_mcp")
 # ════════════════════════════════════════════════════
 
 @asynccontextmanager
-async def app_lifespan() -> Any:
+async def app_lifespan(app: Any) -> Any:
     """Inicializa recursos compartilhados por todos os tools."""
     logger.info("Inicializando RAG MCP Server...")
 
