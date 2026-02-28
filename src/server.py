@@ -505,7 +505,7 @@ async def rag_get_stats(params: StatsInput, ctx: Any) -> str:
         f"- **Chunks**: {stats['chunks']}\n"
         f"- **Tokens totais**: {stats['total_tokens']:,}\n"
         f"- **Por tipo**:\n{by_type or '  Nenhum documento.'}\n\n"
-        f"*Modelo de embedding: BGE-M3 (1024d, ONNX INT8)*\n"
+        f"*Modelo de embedding: BGE-M3 (1024d, sentence-transformers)*\n"
         f"*Reranker: ms-marco-MiniLM-L-6-v2*"
     )
 

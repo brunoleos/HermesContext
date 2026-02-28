@@ -13,7 +13,6 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache-dir \
         "mcp>=1.0.0" \
         "pydantic>=2.0" \
-        "fastembed>=0.4.0" \
         "sentence-transformers>=3.0.0" \
         "oracledb>=2.0.0" \
         "redis>=5.0.0" \
@@ -25,7 +24,7 @@ COPY src/ src/
 COPY scripts/ scripts/
 
 # Pré-download dos modelos durante build (cache no layer)
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-m3')" \
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')" \
     && python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
 ENV PYTHONUNBUFFERED=1

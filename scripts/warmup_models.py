@@ -19,42 +19,27 @@ from src.config import settings
 
 def main() -> None:
     print("=" * 60)
-    print("  RAG MCP — Download e Warmup dos Modelos")
+    print("  HermesContext — Download e Warmup dos Modelos")
     print("=" * 60)
 
     # 1. BGE-M3 Dense Embedding
-    print(f"\n[1/3] Baixando BGE-M3 ({settings.embedding_model})...")
+    print(f"\n[1/2] Baixando BGE-M3 ({settings.embedding_model})...")
     t0 = time.monotonic()
-    from fastembed import TextEmbedding
+    from sentence_transformers import SentenceTransformer
 
-    model = TextEmbedding(
-        model_name=settings.embedding_model,
-        max_length=settings.embedding_max_length,
-        providers=["CPUExecutionProvider"],
-    )
+    model = SentenceTransformer(settings.embedding_model, device="cpu")
+    model.max_seq_length = settings.embedding_max_length
     elapsed = time.monotonic() - t0
     print(f"       ✅ Carregado em {elapsed:.1f}s")
 
     print("\n       Warmup: embedding de teste...")
     t0 = time.monotonic()
-    result = list(model.embed(["Teste de embedding para warmup do modelo."]))
+    result = model.encode(["Teste de embedding para warmup do modelo."], normalize_embeddings=True)
     elapsed = (time.monotonic() - t0) * 1000
     print(f"       ✅ Dimensão: {len(result[0])}, latência: {elapsed:.0f}ms")
 
-    # 2. BGE-M3 Sparse (BM25-like)
-    print("\n[2/3] Baixando BGE-M3 Sparse (Qdrant/bm25)...")
-    t0 = time.monotonic()
-    from fastembed import SparseTextEmbedding
-
-    sparse = SparseTextEmbedding(
-        model_name="Qdrant/bm25",
-        providers=["CPUExecutionProvider"],
-    )
-    elapsed = time.monotonic() - t0
-    print(f"       ✅ Carregado em {elapsed:.1f}s")
-
-    # 3. Cross-Encoder Reranker
-    print(f"\n[3/3] Baixando Reranker ({settings.reranker_model})...")
+    # 2. Cross-Encoder Reranker
+    print(f"\n[2/2] Baixando Reranker ({settings.reranker_model})...")
     t0 = time.monotonic()
     from sentence_transformers import CrossEncoder
 

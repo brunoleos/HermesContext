@@ -377,25 +377,22 @@ Saída esperada:
 docker compose run --rm hermes python -m scripts.warmup_models
 ```
 
-> ⏱️ Primeiro download: **~5 minutos** (BGE-M3 ~1.2 GB + MiniLM ~90 MB).
+> ⏱️ Primeiro download: **~5 minutos** (BGE-M3 ~1.5 GB + MiniLM ~90 MB).
 > Downloads ficam no volume Docker `models-cache` e persistem entre rebuilds.
 
 Saída esperada:
 ```
 ============================================
-  RAG MCP — Download e Warmup dos Modelos
+  HermesContext — Download e Warmup dos Modelos
 ============================================
 
-[1/3] Baixando BGE-M3 (BAAI/bge-m3)...
+[1/2] Baixando BGE-M3 (BAAI/bge-m3)...
        ✅ Carregado em 45.2s
 
        Warmup: embedding de teste...
        ✅ Dimensão: 1024, latência: 132ms
 
-[2/3] Baixando BGE-M3 Sparse (Qdrant/bm25)...
-       ✅ Carregado em 3.1s
-
-[3/3] Baixando Reranker (cross-encoder/ms-marco-MiniLM-L-6-v2)...
+[2/2] Baixando Reranker (cross-encoder/ms-marco-MiniLM-L-6-v2)...
        ✅ Carregado em 8.4s
 
        Warmup: reranking de teste...
@@ -403,7 +400,7 @@ Saída esperada:
 
 ============================================
   ✅ Todos os modelos prontos.
-  Cache em: /root/.cache (1.3 GB)
+  Cache em: /root/.cache (1.5 GB)
 ============================================
 ```
 

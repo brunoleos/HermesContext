@@ -39,7 +39,7 @@ Hermes não compete com o Oráculo — ele opera a seu serviço.
 
 | Componente | Tecnologia | RAM |
 |-----------|-----------|-----|
-| Embedding | BGE-M3 (ONNX INT8, 1024d, 100+ idiomas) | ~1.2 GB |
+| Embedding | BGE-M3 (PyTorch CPU, 1024d, 100+ idiomas) | ~1.5 GB |
 | Reranker | ms-marco-MiniLM-L-6-v2 (cross-encoder) | ~90 MB |
 | Vector DB | Oracle Autonomous AI Database (Always Free, 20 GB) | 0 (cloud) |
 | Cache | Redis 7 (semantic cache + task queue) | ~512 MB |

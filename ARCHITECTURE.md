@@ -21,11 +21,10 @@
 | **Dimensões** | 1024 (reduzível via MRL: 768, 512, 256) |
 | **Context Window** | 8192 tokens |
 | **Idiomas** | 100+ incluindo PT-BR |
-| **RAM (ONNX INT8)** | ~1.2 GB |
-| **Latência ARM** | ~80–150 ms/chunk |
-| **Features** | Dense + Sparse + ColBERT multi-vector |
+| **RAM (PyTorch CPU)** | ~1.5 GB |
+| **Latência ARM** | ~100–200 ms/chunk |
+| **Features** | Dense 1024d, normalize, batch encode |
 | **Licença** | MIT (uso comercial irrestrito) |
-| **Sparse Vectors** | ✅ BM25-like nativo (hybrid search sem Oracle Text) |
 
 ### Por que não modelos maiores?
 
@@ -38,8 +37,8 @@
 
 BGE-M3 é a escolha correta porque:
 1. Latência sub-200ms permite UX interativa
-2. Sparse vectors nativos eliminam dependência de Oracle Text para keyword search
-3. 1.2 GB de RAM deixa 80%+ da VM livre para o restante da stack
+2. Oracle Text cuida do keyword search (hybrid retrieval)
+3. ~1.5 GB de RAM deixa 80%+ da VM livre para o restante da stack
 4. MIT license sem restrições
 
 ---
@@ -51,7 +50,7 @@ BGE-M3 é a escolha correta porque:
 │  VM ARM Ampere A1: 4 OCPUs / 24 GB RAM / 150 GB disk    │
 │                                                          │
 │  OS + Docker           2.0 GB                            │
-│  BGE-M3 (ONNX INT8)   1.5 GB  ← embedding              │
+│  BGE-M3 (PyTorch CPU)  1.5 GB  ← embedding              │
 │  Reranker (MiniLM)     0.5 GB  ← cross-encoder          │
 │  RAG API (FastAPI)     2.0 GB  ← app + MCP server       │
 │  Ingest Worker         4.0 GB  ← Unstructured + Celery   │
@@ -97,7 +96,7 @@ BGE-M3 é a escolha correta porque:
                          │       │           │       │
                          │  ┌────▼───────────▼────┐ │
                          │  │   Hybrid Retrieval   │ │
-                         │  │ Dense + Sparse + RRF │ │
+                         │  │ Dense + Keyword + RRF │ │
                          │  └──────────┬──────────┘ │
                          └─────────────┼────────────┘
                                        │
