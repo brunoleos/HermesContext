@@ -239,8 +239,8 @@ Hi brunoleos! You've successfully authenticated, but GitHub does not provide she
 
 ```bash
 cd ~
-git clone git@github.com:brunoleos/HermesContext.git rag-mcp-server
-cd rag-mcp-server
+git clone git@github.com:brunoleos/HermesContext.git
+cd HermesContext
 
 cp .env.example .env
 nano .env
@@ -293,7 +293,7 @@ O `.env` já é carregado automaticamente via `env_file: .env`.
 ### Passo 3.1 — Build das imagens Docker
 
 ```bash
-cd ~/rag-mcp-server
+cd ~/HermesContext
 docker compose build
 ```
 
@@ -310,7 +310,7 @@ docker compose logs redis
 ### Passo 3.3 — Testar conexão com Oracle DB
 
 ```bash
-docker compose run --rm rag-mcp python -m scripts.test_connection
+docker compose run --rm hermes python -m scripts.test_connection
 ```
 
 Saída esperada:
@@ -346,7 +346,7 @@ Saída esperada:
 ### Passo 3.4 — Inicializar o schema (tabelas + índices)
 
 ```bash
-docker compose run --rm rag-mcp python -m scripts.init_db
+docker compose run --rm hermes python -m scripts.init_db
 ```
 
 Saída esperada:
@@ -374,7 +374,7 @@ Saída esperada:
 ### Passo 3.5 — Baixar modelos de ML (warmup)
 
 ```bash
-docker compose run --rm rag-mcp python -m scripts.warmup_models
+docker compose run --rm hermes python -m scripts.warmup_models
 ```
 
 > ⏱️ Primeiro download: **~5 minutos** (BGE-M3 ~1.2 GB + MiniLM ~90 MB).
@@ -410,7 +410,7 @@ Saída esperada:
 ### Passo 3.6 — Smoke test (pipeline completo)
 
 ```bash
-docker compose run --rm rag-mcp python -m scripts.smoke_test
+docker compose run --rm hermes python -m scripts.smoke_test
 ```
 
 Este script:
@@ -460,7 +460,7 @@ Saída esperada:
 ### Passo 4.1 — Iniciar todos os serviços
 
 ```bash
-cd ~/rag-mcp-server
+cd ~/HermesContext
 docker compose up -d
 ```
 
@@ -471,7 +471,7 @@ docker compose up -d
 curl -s http://localhost:9090/mcp | head
 
 # Logs do MCP server
-docker compose logs -f rag-mcp
+docker compose logs -f hermes
 # Deve mostrar: "Iniciando RAG MCP Server — transport=streamable_http, host=0.0.0.0, port=9090"
 ```
 
@@ -517,7 +517,7 @@ scp -ri ~/.ssh/id_ed25519 ./documentos/ ubuntu@<vm-ip>:~/docs/
 ### Passo 5.2 — Ingerir arquivo único
 
 ```bash
-docker compose exec rag-mcp python -m scripts.ingest_file \
+docker compose exec hermes python -m scripts.ingest_file \
     /data/resolucao_45.txt \
     --title "Resolução SAP 45/2024" \
     --type resolucao
@@ -534,7 +534,7 @@ docker compose exec rag-mcp python -m scripts.ingest_file \
 ### Passo 5.3 — Ingerir diretório inteiro
 
 ```bash
-docker compose exec rag-mcp python -m scripts.ingest_file \
+docker compose exec hermes python -m scripts.ingest_file \
     /docs/ \
     --type legislacao
 ```
@@ -544,7 +544,7 @@ docker compose exec rag-mcp python -m scripts.ingest_file \
 ### Passo 5.4 — Verificar ingestão
 
 ```bash
-docker compose exec rag-mcp python -c "
+docker compose exec hermes python -c "
 from src.database import Database
 db = Database()
 db.connect()
@@ -616,13 +616,13 @@ chmod +x scripts/health_check.sh
 
 ```bash
 # MCP Server
-docker compose logs -f rag-mcp
+docker compose logs -f hermes
 
 # Todos os serviços
 docker compose logs -f
 
 # Últimas 100 linhas
-docker compose logs --tail 100 rag-mcp
+docker compose logs --tail 100 hermes
 ```
 
 ### Reiniciar serviços
@@ -632,22 +632,22 @@ docker compose logs --tail 100 rag-mcp
 docker compose restart
 
 # Só o MCP server (sem derrubar Redis/worker)
-docker compose restart rag-mcp
+docker compose restart hermes
 ```
 
 ### Atualizar código
 
 ```bash
-cd ~/rag-mcp-server
+cd ~/HermesContext
 git pull
-docker compose build rag-mcp
-docker compose up -d rag-mcp
+docker compose build hermes
+docker compose up -d hermes
 ```
 
 ### Re-rodar schema (após mudanças)
 
 ```bash
-docker compose run --rm rag-mcp python -m scripts.init_db
+docker compose run --rm hermes python -m scripts.init_db
 ```
 
 ### Monitorar uso de recursos
@@ -671,7 +671,7 @@ crontab -e
 
 Adicione:
 ```
-*/5 * * * * /home/ubuntu/rag-mcp-server/scripts/health_check.sh >> /var/log/rag-health.log 2>&1
+*/5 * * * * /home/ubuntu/HermesContext/scripts/health_check.sh >> /var/log/rag-health.log 2>&1
 ```
 
 ---
@@ -687,7 +687,7 @@ Adicione:
 | 5 | Sempre que tiver documentos novos | `python -m scripts.ingest_file <path>` | Ingere documentos na base RAG |
 | 6 | Periódico (cron a cada 5 min) | `./scripts/health_check.sh` | Verifica saúde de todos os componentes |
 
-> Todos os scripts `python -m scripts.*` devem ser executados via `docker compose run --rm rag-mcp` ou `docker compose exec rag-mcp` quando o serviço já está rodando.
+> Todos os scripts `python -m scripts.*` devem ser executados via `docker compose run --rm hermes` ou `docker compose exec hermes` quando o serviço já está rodando.
 
 ---
 
@@ -716,7 +716,7 @@ O Autonomous DB pode estar parado por inatividade (Always Free para automaticame
 
 Verifique que o container tem os limites de CPU adequados:
 ```bash
-docker stats --no-stream rag-mcp
+docker stats --no-stream hermes
 ```
 Se a CPU está constantemente em 100%, aumente o limite no `docker-compose.yml`.
 
@@ -733,5 +733,5 @@ Se for versão anterior, recrie o DB selecionando 23ai no console.
 Verifique nesta ordem:
 1. Security List da VCN tem regra para porta 9090
 2. Firewall do Ubuntu: `sudo iptables -L -n | grep 9090`
-3. Container está ouvindo: `docker compose logs rag-mcp | grep 9090`
+3. Container está ouvindo: `docker compose logs hermes | grep 9090`
 4. Teste local primeiro: `curl http://localhost:9090/mcp`

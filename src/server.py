@@ -31,7 +31,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     stream=sys.stderr,
 )
-logger = logging.getLogger("rag_mcp")
+logger = logging.getLogger("hermes_mcp")
 
 
 # ════════════════════════════════════════════════════
@@ -62,7 +62,7 @@ async def app_lifespan() -> Any:
 
 
 mcp = FastMCP(
-    "rag_mcp",
+    "hermes_mcp",
     lifespan=app_lifespan,
 )
 

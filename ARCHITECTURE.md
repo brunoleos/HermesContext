@@ -76,7 +76,7 @@ BGE-M3 é a escolha correta porque:
                                       │ http://<vm-ip>:9090/mcp
                          ┌────────────▼────────────┐
                          │     MCP SERVER (Python)   │
-                         │     rag_mcp  :9090        │
+                         │     hermes_mcp  :9090        │
                          │                           │
                          │  Tools expostos:           │
                          │  • rag_search             │
@@ -164,25 +164,13 @@ FETCH FIRST :top_k ROWS ONLY;
 ## 5. Docker Compose
 
 ```yaml
-version: "3.8"
-
 services:
-  rag-mcp:
+  hermes:
     build: .
     command: python -m src.server
-    environment:
-      - ORACLE_DSN=${ORACLE_DSN}
-      - ORACLE_USER=${ORACLE_USER}
-      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
-      - ORACLE_WALLET_DIR=/wallet
-      - REDIS_URL=redis://redis:6379
-      - EMBEDDING_MODEL=BAAI/bge-m3
-      - RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
-      - MCP_TRANSPORT=streamable_http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=9090
+    env_file: .env
     volumes:
-      - wallet:/wallet:ro
+      - /home/ubuntu/wallet:/wallet:ro
       - models-cache:/root/.cache
     deploy:
       resources:
@@ -195,26 +183,6 @@ services:
     depends_on:
       - redis
 
-  ingest-worker:
-    build: .
-    command: celery -A src.tasks worker -l info -c 2
-    environment:
-      - ORACLE_DSN=${ORACLE_DSN}
-      - ORACLE_USER=${ORACLE_USER}
-      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
-      - ORACLE_WALLET_DIR=/wallet
-      - REDIS_URL=redis://redis:6379
-      - EMBEDDING_MODEL=BAAI/bge-m3
-    volumes:
-      - wallet:/wallet:ro
-      - models-cache:/root/.cache
-      - ingest-data:/data
-    deploy:
-      resources:
-        limits:
-          cpus: "1.5"
-          memory: 6G
-
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
@@ -225,12 +193,11 @@ services:
           memory: 600M
     volumes:
       - redis-data:/data
+    restart: unless-stopped
 
 volumes:
-  wallet:
   models-cache:
   redis-data:
-  ingest-data:
 ```
 
 ---
@@ -274,7 +241,7 @@ LLM Generativa (Claude / GPT / Gemini / DeepSeek)
     │
     │  Tool call: rag_search(query="requisitos progressão de regime", top_k=5)
     ▼
-MCP Server (rag_mcp)
+MCP Server (hermes_mcp)
     │
     ├─ 1. Semantic Cache check (Redis)          ~1ms
     ├─ 2. BGE-M3 embed query (1024d)            ~100ms

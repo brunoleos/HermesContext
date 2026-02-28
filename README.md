@@ -1,4 +1,5 @@
 # Hermes Context
+Serviço RAG completo que roda como MCP Server, permitindo que qualquer LLM generativa (Claude, GPT, Gemini, etc.) busque, ingira e gerencie documentos em linguagem natural.
 
 **Hermes Context** é um serviço RAG completo que opera como MCP Server, atuando como uma *camada de mediação de contexto* entre modelos de linguagem, ferramentas e fontes de conhecimento.
 
@@ -66,7 +67,8 @@ Hermes não compete com o Oráculo — ele opera a seu serviço.
 
 ### 2. Setup
 ```bash
-git clone <repo-url> && cd rag-mcp-server
+git clone git@github.com:brunoleos/HermesContext.git
+cd HermesContext
 cp .env.example .env
 # Editar .env com credenciais Oracle
 
@@ -76,7 +78,7 @@ docker compose up -d
 ### 3. Verificar
 ```bash
 # Logs
-docker compose logs -f rag-mcp
+docker compose logs -f hermes
 
 # Health check (endpoint MCP ativo)
 curl -s http://localhost:9090/mcp | head
@@ -180,7 +182,7 @@ LLM (Claude/GPT/Gemini)
         │ http://<vm-ip>:9090/mcp
         ▼
 ┌──────────────────────┐
-│   MCP Server (rag_mcp)│
+│   MCP Server (hermes_mcp)│
 │   :9090/mcp          │
 │ ┌──────┐ ┌────────┐ │
 │ │BGE-M3│ │Reranker│ │     ┌──────────────┐

@@ -1,5 +1,5 @@
 [project]
-name = "rag-mcp-server"
+name = "hermescontext"
 version = "1.0.0"
 description = "RAG MCP Server — Oracle Always Free, BGE-M3, 100% self-hosted"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-rag-mcp = "src.server:main"
+hermes-mcp = "src.server:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]

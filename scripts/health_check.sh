@@ -34,7 +34,7 @@ check "MCP endpoint acessível" "curl -sf --max-time 5 ${MCP_URL}/mcp"
 check "Redis respondendo" "redis-cli -u ${REDIS_URL} ping"
 
 # 3. Docker containers
-check "Container rag-mcp rodando" "docker compose ps rag-mcp | grep -q 'Up\|running'"
+check "Container hermes rodando" "docker compose ps hermes | grep -q 'Up\|running'"
 check "Container redis rodando" "docker compose ps redis | grep -q 'Up\|running'"
 
 # 4. Disk

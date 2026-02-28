@@ -1,7 +1,5 @@
-version: "3.8"
-
 services:
-  rag-mcp:
+  hermes:
     build: .
     command: python -m src.server
     env_file: .env

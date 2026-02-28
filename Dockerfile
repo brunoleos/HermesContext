@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache
         "numpy>=1.26.0"
 
 COPY src/ src/
+COPY scripts/ scripts/
 
 # Pré-download dos modelos durante build (cache no layer)
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-m3')" \
