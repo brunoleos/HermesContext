@@ -236,16 +236,27 @@ class Database:
         document_id: int,
         chunks: list[dict],
     ) -> int:
-        """Insere batch de chunks com embeddings.
+        """Insere chunks com embeddings um a um.
+
+        executemany não suporta bind de VECTOR no thin mode,
+        então usamos execute em loop (5-20 chunks = impacto desprezível).
 
         Cada dict em chunks deve ter:
           chunk_text, enriched_text, chunk_index, token_count, embedding
         """
         with self.get_conn() as conn:
             cursor = conn.cursor()
-            rows = []
+            sql = """
+                INSERT INTO chunks
+                    (document_id, chunk_index, chunk_text,
+                     enriched_text, token_count, embedding)
+                VALUES
+                    (:document_id, :chunk_index, :chunk_text,
+                     :enriched_text, :token_count, :embedding)
+            """
             for c in chunks:
-                rows.append(
+                cursor.execute(
+                    sql,
                     {
                         "document_id": document_id,
                         "chunk_index": c["chunk_index"],
@@ -253,20 +264,9 @@ class Database:
                         "enriched_text": c.get("enriched_text"),
                         "token_count": c.get("token_count"),
                         "embedding": c["embedding"],
-                    }
+                    },
                 )
-            cursor.executemany(
-                """
-                INSERT INTO chunks
-                    (document_id, chunk_index, chunk_text,
-                     enriched_text, token_count, embedding)
-                VALUES
-                    (:document_id, :chunk_index, :chunk_text,
-                     :enriched_text, :token_count, :embedding)
-                """,
-                rows,
-            )
-            return len(rows)
+            return len(chunks)
 
     # ── Vector Search ───────────────────────────────
 
