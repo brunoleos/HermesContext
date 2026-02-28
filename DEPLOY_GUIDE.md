@@ -187,11 +187,59 @@ cat ~/wallet/sqlnet.ora
 # Deve mostrar: WALLET_LOCATION = (SOURCE = (METHOD = file) (METHOD_DATA = (DIRECTORY="/home/ubuntu/wallet")))
 ```
 
-### Passo 2.4 — Clonar o projeto e configurar .env
+### Passo 2.4 — Configurar chave SSH para o GitHub
+
+A VM precisa de uma chave SSH própria para clonar o repositório privado `git@github.com:brunoleos/HermesContext.git`.
+
+**Na VM**, gere uma chave Ed25519:
+
+```bash
+ssh-keygen -t ed25519 -C "vm-rag-oracle" -f ~/.ssh/id_ed25519 -N ""
+```
+
+Copie a chave pública gerada:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+Saída será algo como:
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... vm-rag-oracle
+```
+
+**Copie essa linha inteira.** Agora vá ao GitHub no seu navegador:
+
+1. Acesse [github.com/settings/keys](https://github.com/settings/keys)
+2. Clique **New SSH key**
+3. **Title**: `vm-rag-oracle`
+4. **Key type**: Authentication Key
+5. **Key**: cole a chave pública copiada
+6. Clique **Add SSH key**
+
+**De volta na VM**, teste a conexão:
+
+```bash
+ssh -T git@github.com
+```
+
+Na primeira vez vai perguntar sobre o fingerprint — digite `yes`. Saída esperada:
+
+```
+Hi brunoleos! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+> 💡 Alternativa: se não quiser adicionar a chave da VM à sua conta GitHub inteira, use uma **Deploy Key** (acesso somente a este repositório):
+> 1. Vá em `github.com/brunoleos/HermesContext/settings/keys`
+> 2. Clique **Add deploy key**
+> 3. Cole a mesma chave pública
+> 4. Deixe **Allow write access** desmarcado (só precisa de leitura)
+
+### Passo 2.5 — Clonar o projeto e configurar .env
 
 ```bash
 cd ~
-git clone <repo-url> rag-mcp-server
+git clone git@github.com:brunoleos/HermesContext.git rag-mcp-server
 cd rag-mcp-server
 
 cp .env.example .env
@@ -217,23 +265,26 @@ MCP_HOST=0.0.0.0
 MCP_PORT=9090
 ```
 
-### Passo 2.5 — Ajustar Docker Compose volumes (wallet)
+### Passo 2.6 — Verificar docker-compose.yml
 
-O wallet precisa ser montado no container. Edite o `docker-compose.yml`, na seção `volumes` do serviço `rag-mcp` e `ingest-worker`:
+O `docker-compose.yml` já vem configurado no repositório. Verifique que o caminho do wallet corresponde ao local onde você descompactou (Passo 2.3):
 
 ```bash
-nano docker-compose.yml
+cat docker-compose.yml | grep wallet
 ```
 
-Substitua o volume `wallet` por um bind mount apontando para o diretório real:
-
-```yaml
-    volumes:
-      - /home/ubuntu/wallet:/wallet:ro    # ← bind mount real
-      - models-cache:/root/.cache
+Saída esperada:
+```
+      - /home/ubuntu/wallet:/wallet:ro
 ```
 
-Faça a mesma alteração no serviço `ingest-worker`.
+> Se o seu wallet está em outro caminho, edite a linha:
+> ```bash
+> nano docker-compose.yml
+> # Altere /home/ubuntu/wallet para o caminho real
+> ```
+
+O `.env` já é carregado automaticamente via `env_file: .env`.
 
 ---
 

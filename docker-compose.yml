@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  rag-mcp:
+    build: .
+    command: python -m src.server
+    env_file: .env
+    volumes:
+      - /home/ubuntu/wallet:/wallet:ro
+      - models-cache:/root/.cache
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 8G
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 600M
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  models-cache:
+  redis-data:
