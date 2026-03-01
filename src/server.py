@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any, Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .config import settings
@@ -76,12 +76,12 @@ class ResponseFormat(str, Enum):
     JSON = "json"
 
 
-def _get_engine(ctx: Any) -> RAGEngine:
+def _get_engine(ctx: Context) -> RAGEngine:
     """Extrai RAGEngine do contexto de lifespan."""
     return ctx.request_context.lifespan_state["engine"]
 
 
-def _get_db(ctx: Any) -> Database:
+def _get_db(ctx: Context) -> Database:
     return ctx.request_context.lifespan_state["db"]
 
 
@@ -254,7 +254,7 @@ class StatsInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def rag_search(params: SearchInput, ctx: Any) -> str:
+async def rag_search(params: SearchInput, ctx: Context) -> str:
     """Busca documentos por similaridade semântica usando embedding + keyword hybrid search.
 
     Combina busca vetorial (BGE-M3 dense embeddings) com busca por palavras-chave,
@@ -297,7 +297,7 @@ async def rag_search(params: SearchInput, ctx: Any) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_ingest_document(params: IngestInput, ctx: Any) -> str:
+async def rag_ingest_document(params: IngestInput, ctx: Context) -> str:
     """Indexa um novo documento na base de conhecimento RAG.
 
     O documento será: dividido em chunks, enriquecido com contexto,
@@ -349,7 +349,7 @@ async def rag_ingest_document(params: IngestInput, ctx: Any) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_list_documents(params: ListDocumentsInput, ctx: Any) -> str:
+async def rag_list_documents(params: ListDocumentsInput, ctx: Context) -> str:
     """Lista documentos indexados na base de conhecimento com paginação.
 
     Use para ver quais documentos estão disponíveis para busca,
@@ -400,7 +400,7 @@ async def rag_list_documents(params: ListDocumentsInput, ctx: Any) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_get_document(params: GetDocumentInput, ctx: Any) -> str:
+async def rag_get_document(params: GetDocumentInput, ctx: Context) -> str:
     """Obtém detalhes de um documento específico por ID.
 
     Retorna título, fonte, tipo, metadados e quantidade de chunks.
@@ -447,7 +447,7 @@ async def rag_get_document(params: GetDocumentInput, ctx: Any) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_delete_document(params: DeleteDocumentInput, ctx: Any) -> str:
+async def rag_delete_document(params: DeleteDocumentInput, ctx: Context) -> str:
     """Exclui um documento e todos os seus chunks da base de conhecimento.
 
     ⚠️ Ação irreversível. Todos os chunks e embeddings associados serão removidos.
@@ -477,7 +477,7 @@ async def rag_delete_document(params: DeleteDocumentInput, ctx: Any) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_get_stats(params: StatsInput, ctx: Any) -> str:
+async def rag_get_stats(params: StatsInput, ctx: Context) -> str:
     """Retorna estatísticas gerais da base de conhecimento.
 
     Inclui: total de documentos, chunks, tokens e distribuição por tipo.
