@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any, Optional
 
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .config import settings
@@ -38,26 +38,35 @@ logger = logging.getLogger("hermes_mcp")
 # Lifespan: inicializa DB, modelos e engine uma vez
 # ════════════════════════════════════════════════════
 
+# Globais — inicializados no lifespan, usados pelos tools
+_db: Database | None = None
+_engine: RAGEngine | None = None
+
+
 @asynccontextmanager
 async def app_lifespan(app: Any) -> Any:
     """Inicializa recursos compartilhados por todos os tools."""
+    global _db, _engine
+
     logger.info("Inicializando RAG MCP Server...")
 
-    db = Database()
-    db.connect()
-    db.init_schema()
+    _db = Database()
+    _db.connect()
+    _db.init_schema()
 
     emb = EmbeddingService()
-    engine = RAGEngine(db=db, emb=emb)
+    _engine = RAGEngine(db=_db, emb=emb)
 
     # Pré-carregar modelos (evita latência na primeira chamada)
     logger.info("Pré-carregando modelos de embedding...")
     _ = emb.embed_query("warmup")
     logger.info("Modelos prontos.")
 
-    yield {"db": db, "emb": emb, "engine": engine}
+    yield {}
 
-    db.close()
+    _db.close()
+    _db = None
+    _engine = None
     logger.info("RAG MCP Server encerrado.")
 
 
@@ -76,13 +85,14 @@ class ResponseFormat(str, Enum):
     JSON = "json"
 
 
-def _get_engine(ctx: Context) -> RAGEngine:
-    """Extrai RAGEngine do contexto de lifespan."""
-    return ctx.request_context.lifespan_state["engine"]
+def _get_engine() -> RAGEngine:
+    assert _engine is not None, "Server não inicializado"
+    return _engine
 
 
-def _get_db(ctx: Context) -> Database:
-    return ctx.request_context.lifespan_state["db"]
+def _get_db() -> Database:
+    assert _db is not None, "Server não inicializado"
+    return _db
 
 
 def _format_search_results(results: dict, fmt: ResponseFormat) -> str:
@@ -254,7 +264,7 @@ class StatsInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def rag_search(params: SearchInput, ctx: Context) -> str:
+async def rag_search(params: SearchInput) -> str:
     """Busca documentos por similaridade semântica usando embedding + keyword hybrid search.
 
     Combina busca vetorial (BGE-M3 dense embeddings) com busca por palavras-chave,
@@ -274,15 +284,13 @@ async def rag_search(params: SearchInput, ctx: Context) -> str:
     Returns:
         str: Resultados formatados com trechos relevantes, scores e metadados.
     """
-    engine = _get_engine(ctx)
+    engine = _get_engine()
 
-    await ctx.report_progress(0.1, "Gerando embedding da query...")
     results = engine.search(
         query=params.query,
         top_k=params.top_k,
         use_reranker=params.use_reranker,
     )
-    await ctx.report_progress(1.0, "Busca concluída.")
 
     return _format_search_results(results, params.response_format)
 
@@ -297,7 +305,7 @@ async def rag_search(params: SearchInput, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_ingest_document(params: IngestInput, ctx: Context) -> str:
+async def rag_ingest_document(params: IngestInput) -> str:
     """Indexa um novo documento na base de conhecimento RAG.
 
     O documento será: dividido em chunks, enriquecido com contexto,
@@ -318,9 +326,8 @@ async def rag_ingest_document(params: IngestInput, ctx: Context) -> str:
     Returns:
         str: Confirmação com ID do documento, quantidade de chunks e tempo.
     """
-    engine = _get_engine(ctx)
+    engine = _get_engine()
 
-    await ctx.report_progress(0.1, "Processando documento...")
     result = engine.ingest_document(
         title=params.title,
         content=params.content,
@@ -328,7 +335,6 @@ async def rag_ingest_document(params: IngestInput, ctx: Context) -> str:
         doc_type=params.doc_type,
         metadata=params.metadata,
     )
-    await ctx.report_progress(1.0, "Ingestão concluída.")
 
     return (
         f"✅ Documento ingerido com sucesso.\n"
@@ -349,7 +355,7 @@ async def rag_ingest_document(params: IngestInput, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_list_documents(params: ListDocumentsInput, ctx: Context) -> str:
+async def rag_list_documents(params: ListDocumentsInput) -> str:
     """Lista documentos indexados na base de conhecimento com paginação.
 
     Use para ver quais documentos estão disponíveis para busca,
@@ -365,7 +371,7 @@ async def rag_list_documents(params: ListDocumentsInput, ctx: Context) -> str:
     Returns:
         str: Lista de documentos com ID, título, tipo e contagem de chunks.
     """
-    db = _get_db(ctx)
+    db = _get_db()
     data = db.list_documents(
         limit=params.limit,
         offset=params.offset,
@@ -400,7 +406,7 @@ async def rag_list_documents(params: ListDocumentsInput, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_get_document(params: GetDocumentInput, ctx: Context) -> str:
+async def rag_get_document(params: GetDocumentInput) -> str:
     """Obtém detalhes de um documento específico por ID.
 
     Retorna título, fonte, tipo, metadados e quantidade de chunks.
@@ -413,7 +419,7 @@ async def rag_get_document(params: GetDocumentInput, ctx: Context) -> str:
     Returns:
         str: Detalhes do documento ou mensagem de erro se não encontrado.
     """
-    db = _get_db(ctx)
+    db = _get_db()
     doc = db.get_document(params.document_id)
 
     if not doc:
@@ -447,7 +453,7 @@ async def rag_get_document(params: GetDocumentInput, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_delete_document(params: DeleteDocumentInput, ctx: Context) -> str:
+async def rag_delete_document(params: DeleteDocumentInput) -> str:
     """Exclui um documento e todos os seus chunks da base de conhecimento.
 
     ⚠️ Ação irreversível. Todos os chunks e embeddings associados serão removidos.
@@ -459,7 +465,7 @@ async def rag_delete_document(params: DeleteDocumentInput, ctx: Context) -> str:
     Returns:
         str: Confirmação de exclusão ou erro se não encontrado.
     """
-    db = _get_db(ctx)
+    db = _get_db()
     deleted = db.delete_document(params.document_id)
 
     if deleted:
@@ -477,7 +483,7 @@ async def rag_delete_document(params: DeleteDocumentInput, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_get_stats(params: StatsInput, ctx: Context) -> str:
+async def rag_get_stats(params: StatsInput) -> str:
     """Retorna estatísticas gerais da base de conhecimento.
 
     Inclui: total de documentos, chunks, tokens e distribuição por tipo.
@@ -489,7 +495,7 @@ async def rag_get_stats(params: StatsInput, ctx: Context) -> str:
     Returns:
         str: Estatísticas formatadas da base RAG.
     """
-    db = _get_db(ctx)
+    db = _get_db()
     stats = db.get_stats()
 
     if params.response_format == ResponseFormat.JSON:
