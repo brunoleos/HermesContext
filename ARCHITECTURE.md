@@ -33,7 +33,7 @@
 | KaLM-Gemma3-12B | 72.3 | ~11 GB | 2–8 s | ❌ Inviável: consome 50% da RAM, latência destrutiva |
 | Qwen3-Embedding-8B | 70.6 | ~5 GB | 1–4 s | ❌ Inviável: latência > 1s inaceitável para serving |
 | Qwen3-Embedding-4B | ~67 | ~3 GB | 0.5–1 s | ⚠️ Marginal: ~5 pontos a mais, 5–10× mais lento |
-| **BGE-M3** | **63.0** | **1.2 GB** | **80–150 ms** | **✅ Melhor trade-off para CPU ARM** |
+| **BGE-M3** | **63.0** | **1.5 GB** | **100–200 ms** | **✅ Melhor trade-off para CPU ARM** |
 
 BGE-M3 é a escolha correta porque:
 1. Latência sub-200ms permite UX interativa

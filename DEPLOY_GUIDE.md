@@ -1,13 +1,14 @@
-# Guia de Deploy — RAG MCP Server no Oracle Cloud Always Free
+# Guia de Deploy — HermesContext no Oracle Cloud Always Free
 
-Passo a passo completo: do zero ao `http://<vm-ip>:9090/mcp` funcionando.
+Passo a passo completo: do zero ao MCP Server funcionando em `http://<vm-ip>:9090/mcp`.
+
+> **Testado em**: Fev/2026 — Oracle Cloud sa-saopaulo-1, Ubuntu 24.04 aarch64, Docker 27.x, Python 3.12.
 
 ---
 
 ## Pré-requisitos
 
 - Conta Oracle Cloud (cadastro em [cloud.oracle.com](https://cloud.oracle.com))
-- Um domínio (opcional, para HTTPS)
 - Terminal SSH (PuTTY no Windows, ou terminal nativo Linux/Mac)
 - Chave SSH gerada (`ssh-keygen -t ed25519`)
 
@@ -84,15 +85,15 @@ Tudo nesta fase é feito no console web [cloud.oracle.com](https://cloud.oracle.
 2. Clique **Create Autonomous Database**
 3. Configure:
    - **Compartment**: `rag-ipen`
-   - **Display name**: `ragdb`
-   - **Database name**: `ragdb`
+   - **Display name**: `hermesdb`
+   - **Database name**: `hermesdb`
    - **Workload type**: Transaction Processing (ou Data Warehouse — ambos suportam VECTOR)
    - **Deployment type**: Serverless
    - **Always Free**: ✅ **Marque esta opção**
    - **Database version**: 23ai (obrigatório para suporte a VECTOR)
    - **OCPU count**: 1 (Always Free máximo)
    - **Storage**: 20 GB (Always Free máximo)
-   - **Password**: defina uma senha forte (ex: `RagMcp2026!Seguro`)
+   - **Password**: defina uma senha forte (ex: `HermesMcp2026!Seguro`)
      - **Guarde esta senha**, será usada no `.env`
    - **Network Access**: Secure access from everywhere (com mTLS via wallet)
    - **License type**: License Included
@@ -101,21 +102,21 @@ Tudo nesta fase é feito no console web [cloud.oracle.com](https://cloud.oracle.
 
 ### Passo 1.6 — Baixar o Wallet (credenciais mTLS)
 
-1. Na página do Autonomous DB (`ragdb`), clique **DB Connection**
+1. Na página do Autonomous DB (`hermesdb`), clique **DB Connection**
 2. Clique **Download Wallet**
 3. Defina um password para o wallet (pode ser o mesmo da senha do DB)
-4. Salve o arquivo `Wallet_ragdb.zip`
+4. Salve o arquivo `Wallet_hermesdb.zip`
 5. **Não descompacte no seu PC** — será enviado direto para a VM
 
 ### Passo 1.7 — Obter a Connection String (DSN)
 
 1. Ainda em **DB Connection**, na seção **Connection Strings**
 2. Selecione **TLS Authentication: Mutual TLS**
-3. Copie a connection string **`ragdb_low`** (perfil de baixo consumo, ideal para Always Free)
+3. Copie a connection string **`hermesdb_low`** (perfil de baixo consumo, ideal para Always Free)
 4. O formato será algo como:
 
 ```
-(description=(retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.sa-saopaulo-1.oraclecloud.com))(connect_data=(service_name=xxxxxxxxxxxx_ragdb_low.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+(description=(retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.sa-saopaulo-1.oraclecloud.com))(connect_data=(service_name=xxxxxxxxxxxx_hermesdb_low.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
 ```
 
 5. **Anote esta string** — será o valor de `ORACLE_DSN` no `.env`
@@ -144,6 +145,10 @@ sudo usermod -aG docker $USER
 # Docker Compose plugin
 sudo apt install -y docker-compose-plugin
 
+# Node.js (necessário para MCP Inspector)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
 # Utilitários
 sudo apt install -y git unzip redis-tools curl jq
 
@@ -157,6 +162,7 @@ ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip>
 # Verificar
 docker --version
 docker compose version
+node --version
 ```
 
 ### Passo 2.3 — Upload e configuração do Wallet
@@ -164,7 +170,7 @@ docker compose version
 No seu **PC local**, envie o wallet para a VM:
 
 ```bash
-scp -i ~/.ssh/id_ed25519 Wallet_ragdb.zip ubuntu@<vm-ip>:~/
+scp -i ~/.ssh/id_ed25519 Wallet_hermesdb.zip ubuntu@<vm-ip>:~/
 ```
 
 Na **VM**, descompacte:
@@ -172,7 +178,7 @@ Na **VM**, descompacte:
 ```bash
 mkdir -p ~/wallet
 cd ~/wallet
-unzip ~/Wallet_ragdb.zip
+unzip ~/Wallet_hermesdb.zip
 ls -la
 # Deve conter: cwallet.sso, tnsnames.ora, sqlnet.ora, ewallet.p12, etc.
 ```
@@ -252,7 +258,7 @@ Preencha o `.env` com os valores reais:
 # Valores de exemplo — substitua pelos seus
 ORACLE_DSN=(description=(retry_count=20)(...o DSN completo copiado no Passo 1.7...))
 ORACLE_USER=ADMIN
-ORACLE_PASSWORD=RagMcp2026!Seguro
+ORACLE_PASSWORD=HermesMcp2026!Seguro
 ORACLE_WALLET_DIR=/wallet
 
 REDIS_URL=redis://redis:6379
@@ -297,7 +303,11 @@ cd ~/HermesContext
 docker compose build
 ```
 
-> ⏱️ Primeiro build leva **10–20 minutos** no ARM (compilação de dependências nativas). Builds subsequentes usam cache e são rápidos.
+> ⏱️ Primeiro build leva **10–20 minutos** no ARM (compilação de dependências nativas + download dos modelos BGE-M3 e MiniLM). Builds subsequentes usam cache e são rápidos.
+
+> ⚠️ **Warnings normais durante o build** (podem ser ignorados):
+> - `position_ids UNEXPECTED` — chave extra no checkpoint do reranker, sem impacto
+> - `unauthenticated requests to HF Hub` — download funciona sem token, apenas com rate limit menor
 
 ### Passo 3.2 — Subir somente o Redis primeiro
 
@@ -328,7 +338,7 @@ Saída esperada:
        ✅ tnsnames.ora
        ✅ sqlnet.ora
 
-[2/4] Conectando...
+[2/4] Conectando (thin mode, sem Oracle Client)...
        ✅ Conexão OK
 
 [3/4] Versão do banco...
@@ -339,6 +349,8 @@ Saída esperada:
 
 ✅ Todos os testes passaram.
 ```
+
+> O driver `oracledb` usa **thin mode** (Python puro) — não precisa de Oracle Client instalado. A conexão mTLS é feita diretamente via wallet.
 
 > ❌ Se falhar em [2/4], verifique: DSN copiado corretamente, senha sem caracteres especiais mal-escapados, wallet descompactado.
 > ❌ Se falhar em [4/4], o DB precisa ser versão 23ai. Recrie selecionando a versão correta.
@@ -369,7 +381,7 @@ Saída esperada:
 ✅ Banco inicializado com sucesso.
 ```
 
-> Este script é idempotente. Pode rodar múltiplas vezes sem problemas.
+> Este script é idempotente — pode rodar múltiplas vezes sem problemas. Cria as tabelas `documents` e `chunks`, o índice vetorial HNSW, o índice Oracle Text (full-text search) e o índice de FK.
 
 ### Passo 3.5 — Baixar modelos de ML (warmup)
 
@@ -387,22 +399,28 @@ Saída esperada:
 ============================================
 
 [1/2] Baixando BGE-M3 (BAAI/bge-m3)...
-       ✅ Carregado em 45.2s
+       ✅ Carregado em 10.1s
 
        Warmup: embedding de teste...
-       ✅ Dimensão: 1024, latência: 132ms
+       ✅ Dimensão: 1024, latência: 220ms
 
 [2/2] Baixando Reranker (cross-encoder/ms-marco-MiniLM-L-6-v2)...
-       ✅ Carregado em 8.4s
+       ✅ Carregado em 2.0s
 
        Warmup: reranking de teste...
-       ✅ Scores: [3.2145, -8.9231], latência: 87ms
+       ✅ Scores: [-11.2215, -11.0258], latência: 26ms
 
 ============================================
   ✅ Todos os modelos prontos.
-  Cache em: /root/.cache (1.5 GB)
+  Cache em: /root/.cache (8.7 GB)
 ============================================
 ```
+
+> **Sobre os scores do reranker**: valores negativos e próximos são normais no warmup. O cross-encoder gera scores em escala arbitrária — o que importa é a ordenação relativa, não o valor absoluto. Com textos reais os scores divergem bastante.
+
+> **Warning `position_ids UNEXPECTED`**: inofensivo — chave extra no checkpoint que o modelo ignora.
+
+> **Cache 8.7 GB**: `sentence-transformers` baixa pesos em FP32. Está no volume Docker `models-cache`, persiste entre restarts e rebuilds.
 
 ### Passo 3.6 — Smoke test (pipeline completo)
 
@@ -425,22 +443,23 @@ Saída esperada:
 ============================================
 
 [1/5] Ingestão de documento de teste...
-       ✅ Doc ID: 1, Chunks: 3, 1842ms
+       ✅ Doc ID: 1, Chunks: 1, 18925ms
 
 [2/5] Teste de embedding...
-       ✅ Dimensão: 1024, latência: 105ms
+       ✅ Dimensão: 1024, latência: 158ms
 
 [3/5] Vector search...
-       ✅ 3 resultados, 12ms
+       ✅ 1 resultados, 4ms
 
 [4/5] Busca híbrida + reranking...
-       ✅ 3 resultados de 3 candidatos, 287ms
-       Top resultado: score=4.2318
-       Preview: Art. 112. A pena privativa de liberdade será executada em forma progressiva...
+       ✅ 1 resultados de 1 candidatos, 2690ms
+       Top resultado: score=-1.8263
+       Preview: Lei de Execução Penal - LEP (Lei nº 7.210/1984)
+Art. 112. A pena privativa de liberdade será execut...
 
 [5/5] Estatísticas...
        Documentos: 1
-       Chunks: 3
+       Chunks: 1
 
   🧹 Limpando documento de teste (ID: 1)...
        ✅ Documento de teste removido.
@@ -449,6 +468,22 @@ Saída esperada:
   ✅ SMOKE TEST PASSOU — pipeline RAG funcionando!
 ============================================
 ```
+
+> **Latência alta na primeira execução**: a ingestão (~19s) e o reranking (~2.7s) são lentos na primeira chamada porque carregam os modelos na memória. Execuções subsequentes são muito mais rápidas (~350ms por query completa).
+
+> **Doc ID > 1**: Se você rodou smoke tests anteriores que falharam, o ID pode ser maior que 1 (ex: 5, 6). Isso é normal — o Oracle usa sequences auto-incrementais. Se quiser limpar documentos órfãos:
+> ```bash
+> docker compose exec hermes python -c "
+> from src.database import Database
+> db = Database()
+> db.connect()
+> with db.get_conn() as conn:
+>     cursor = conn.cursor()
+>     cursor.execute('DELETE FROM documents d WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.document_id = d.id)')
+>     print(f'Removidos: {cursor.rowcount} documentos órfãos')
+> db.close()
+> "
+> ```
 
 ---
 
@@ -461,39 +496,79 @@ cd ~/HermesContext
 docker compose up -d
 ```
 
-### Passo 4.2 — Verificar que o endpoint está acessível
-
-```bash
-# Da própria VM
-curl -s http://localhost:9090/mcp | head
-
-# Logs do MCP server
-docker compose logs -f hermes
-# Deve mostrar: "Iniciando RAG MCP Server — transport=streamable_http, host=0.0.0.0, port=9090"
-```
-
-Do **seu PC local** (substitua `<vm-ip>` pelo IP real):
-
-```bash
-curl -s http://<vm-ip>:9090/mcp | head
-```
-
-> ❌ Se não responder: verifique a Security List (Passo 1.3) e o firewall do Ubuntu:
+> Se aparecer warning sobre orphan containers de runs anteriores:
 > ```bash
-> sudo iptables -L -n | grep 9090
-> # Se não aparecer regra, adicione:
-> sudo iptables -I INPUT -p tcp --dport 9090 -j ACCEPT
+> docker compose down --remove-orphans
+> docker compose up -d
 > ```
 
-### Passo 4.3 — Testar via MCP Inspector (opcional)
-
-No seu PC local:
+### Passo 4.2 — Verificar que o server está rodando
 
 ```bash
-npx @modelcontextprotocol/inspector http://<vm-ip>:9090/mcp
+docker compose logs --tail 10 hermes
 ```
 
-Isso abre uma interface web onde você pode listar tools, chamar `rag_search`, `rag_get_stats`, etc.
+Saída esperada:
+```
+hermes-1  | INFO: Iniciando RAG MCP Server — transport=streamable_http, host=0.0.0.0, port=9090
+hermes-1  | INFO: Usando streamable_http_app()
+hermes-1  | INFO:     Started server process [1]
+hermes-1  | INFO:     Waiting for application startup.
+hermes-1  | INFO:     StreamableHTTP session manager started
+hermes-1  | INFO:     Application startup complete.
+hermes-1  | INFO:     Uvicorn running on http://0.0.0.0:9090 (Press CTRL+C to quit)
+```
+
+**Testar o endpoint** (na VM):
+
+```bash
+curl -X POST http://localhost:9090/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+Se retornar JSON com `serverInfo` e `capabilities`, o MCP server está funcionando.
+
+> ⚠️ **`curl http://localhost:9090/mcp` retorna 406 "Not Acceptable"** — isso é **normal**. O protocolo MCP usa Server-Sent Events e requer headers específicos (`Accept: application/json, text/event-stream`) com método POST. Um GET simples é rejeitado por design.
+
+### Passo 4.3 — Testar via MCP Inspector
+
+O MCP Inspector é uma interface web para testar os tools interativamente.
+
+**Na VM**, inicie o Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector http://localhost:9090/mcp
+```
+
+Saída:
+```
+⚙️ Proxy server listening on localhost:6277
+🔑 Session token: <token>
+🚀 MCP Inspector is up and running at:
+   http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
+```
+
+> ⚠️ O Inspector roda na VM, mas o browser precisa rodar no seu PC. Use **SSH tunnel**.
+
+**No seu PC local** (PowerShell ou terminal), abra um túnel SSH:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 -L 6274:localhost:6274 -L 6277:localhost:6277 ubuntu@<vm-ip>
+```
+
+Agora abra no navegador do seu PC:
+```
+http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
+```
+
+> ⚠️ **Importante**: na interface do Inspector, a URL do server deve ser `http://localhost:9090/mcp` (não o IP público). O proxy do Inspector roda na mesma VM que o MCP server, então `localhost` funciona. Usar o IP público causa erro `421 Invalid Host header`.
+
+Na interface do Inspector você pode:
+- Ver os 6 tools listados (rag_search, rag_ingest_document, etc.)
+- Chamar `rag_get_stats` para verificar o estado do banco
+- Testar `rag_search` com queries reais
 
 ---
 
@@ -565,7 +640,7 @@ Edite `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) ou
 ```json
 {
   "mcpServers": {
-    "rag": {
+    "hermes": {
       "type": "url",
       "url": "http://<vm-ip>:9090/mcp"
     }
@@ -578,7 +653,7 @@ Reinicie o Claude Desktop. Os 6 tools RAG aparecem na interface.
 ### Opção B: Claude Code (CLI)
 
 ```bash
-claude mcp add rag --transport http http://<vm-ip>:9090/mcp
+claude mcp add hermes --transport http http://<vm-ip>:9090/mcp
 ```
 
 ### Opção C: Qualquer agente MCP (Python)
@@ -622,13 +697,15 @@ docker compose logs -f
 docker compose logs --tail 100 hermes
 ```
 
+> ⚠️ Rode `docker compose logs` sempre de dentro do diretório `~/HermesContext`. Fora dele retorna `no configuration file provided: not found`.
+
 ### Reiniciar serviços
 
 ```bash
 # Tudo
 docker compose restart
 
-# Só o MCP server (sem derrubar Redis/worker)
+# Só o MCP server (sem derrubar Redis)
 docker compose restart hermes
 ```
 
@@ -640,6 +717,18 @@ git pull
 docker compose build hermes
 docker compose up -d hermes
 ```
+
+> ⚠️ **Rebuild é obrigatório** após mudanças no código. O `Dockerfile` usa `COPY src/ src/` e `COPY scripts/ scripts/`, então os arquivos são copiados no build, não montados em tempo de execução.
+
+> 💡 **Dica para desenvolvimento**: para evitar rebuild a cada mudança, adicione volumes temporários no `docker-compose.yml`:
+> ```yaml
+> volumes:
+>   - /home/ubuntu/wallet:/wallet:ro
+>   - models-cache:/root/.cache
+>   - ./src:/app/src        # código ao vivo
+>   - ./scripts:/app/scripts # scripts ao vivo
+> ```
+> Remova essas linhas e faça um build final quando estabilizar.
 
 ### Re-rodar schema (após mudanças)
 
@@ -725,10 +814,57 @@ SELECT banner FROM v$version;
 ```
 Se for versão anterior, recrie o DB selecionando 23ai no console.
 
+### "ORA-01484: arrays can only be bound to PL/SQL statements"
+
+O driver `oracledb` em thin mode não aceita `list[float]` como bind para colunas VECTOR. A solução é converter para `array.array('f', embedding)` antes do bind. Isso já está implementado no método `Database._to_vector()`.
+
+### "ORA-30600: Oracle Text error — DRG-10599: column is not indexed"
+
+O índice Oracle Text não foi criado. Rode:
+```bash
+docker compose run --rm hermes python -m scripts.init_db
+```
+
+### "ORA-30600: Oracle Text error — DRG-50901: text query parser syntax error"
+
+Caracteres especiais na query (`?`, `&`, `!`, etc.) causam erro no parser Oracle Text. O `keyword_search` já sanitiza a query automaticamente, extraindo apenas palavras e usando `{palavra} OR {palavra}` para evitar interpretação de operadores.
+
 ### MCP endpoint não acessível externamente
 
 Verifique nesta ordem:
 1. Security List da VCN tem regra para porta 9090
 2. Firewall do Ubuntu: `sudo iptables -L -n | grep 9090`
 3. Container está ouvindo: `docker compose logs hermes | grep 9090`
-4. Teste local primeiro: `curl http://localhost:9090/mcp`
+4. Teste local primeiro: `curl -X POST http://localhost:9090/mcp -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'`
+
+### "FastMCP.run() got an unexpected keyword argument 'host'"
+
+A versão do pacote `mcp` instalada não suporta `host` no `run()`. O server já usa `uvicorn.run()` diretamente com `mcp.streamable_http_app()` para controle total de host/port.
+
+### "app_lifespan() takes 0 positional arguments but 1 was given"
+
+O FastMCP passa a instância do server como argumento para o lifespan. A assinatura correta é `async def app_lifespan(app: Any)`.
+
+### MCP Inspector: "421 Invalid Host header"
+
+O Inspector deve conectar via `http://localhost:9090/mcp`, não via IP público. Use SSH tunnel para acessar o Inspector do seu PC:
+```bash
+ssh -i ~/.ssh/id_ed25519 -L 6274:localhost:6274 -L 6277:localhost:6277 ubuntu@<vm-ip>
+```
+
+### `docker compose logs` retorna "no configuration file provided"
+
+Rode o comando de dentro do diretório do projeto:
+```bash
+cd ~/HermesContext
+docker compose logs --tail 20 hermes
+```
+
+### curl no Windows PowerShell não funciona com `http://`
+
+O `curl` do PowerShell é um alias para `Invoke-WebRequest`. Use:
+```powershell
+curl.exe http://<vm-ip>:9090/mcp
+# ou
+Invoke-WebRequest -Uri http://<vm-ip>:9090/mcp -UseBasicParsing
+```
