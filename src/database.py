@@ -195,12 +195,14 @@ class Database:
             cursor = conn.cursor()
 
             where = ""
-            params: dict[str, Any] = {"limit": limit, "offset": offset}
+            count_params: dict[str, Any] = {}
+            data_params: dict[str, Any] = {"limit": limit, "offset": offset}
             if doc_type:
                 where = "WHERE doc_type = :doc_type"
-                params["doc_type"] = doc_type
+                count_params["doc_type"] = doc_type
+                data_params["doc_type"] = doc_type
 
-            cursor.execute(f"SELECT COUNT(*) FROM documents {where}", params)
+            cursor.execute(f"SELECT COUNT(*) FROM documents {where}", count_params)
             total = cursor.fetchone()[0]
 
             cursor.execute(
@@ -212,7 +214,7 @@ class Database:
                 ORDER BY d.created_at DESC
                 OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
                 """,
-                params,
+                data_params,
             )
 
             items = [
