@@ -409,6 +409,69 @@ If a specific MCP tool fails:
 3. Verify database connectivity
 4. Check if models are loaded: `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose logs hermes | grep 'Modelos'"`
 
+## MCP Inspector
+
+The MCP Inspector is a web-based interface for interactively testing MCP tools. It provides a visual way to call tools and see responses.
+
+### Using the MCP Inspector Script
+
+The project includes an automated script that:
+1. Restarts the Inspector on the VM (kills previous processes on ports 6274/6277)
+2. Captures the auth token from logs
+3. Opens a local SSH tunnel
+4. Opens the browser with the full URL
+
+Run the script from your local machine:
+```bash
+bash scripts/mcp-inspector.sh
+```
+
+The script uses these default values:
+- SSH Host: ubuntu@$VM_IP
+- SSH Key: $HOME/.ssh/id_ed25519
+- MCP URL: http://localhost:9090/mcp
+- Inspector ports: 6274 (web), 6277 (proxy)
+
+### Manual MCP Inspector Setup
+
+If you need to run the Inspector manually:
+
+**Step 1: Start Inspector on VM**
+```bash
+ssh -i $SSH_KEY ubuntu@$VM_IP
+pkill -f '@modelcontextprotocol/inspector' 2>/dev/null || true
+npx @modelcontextprotocol/inspector http://localhost:9090/mcp
+```
+
+**Step 2: Get Auth Token**
+The Inspector will output a URL with a token, e.g.:
+```
+MCP Inspector is up and running at:
+   http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
+```
+
+**Step 3: Create SSH Tunnel**
+```bash
+ssh -i $SSH_KEY -L 6274:localhost:6274 -L 6277:localhost:6277 -N ubuntu@$VM_IP
+```
+
+**Step 4: Open Browser**
+Navigate to:
+```
+http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
+```
+
+> **Important**: In the Inspector interface, the server URL should be `http://localhost:9090/mcp` (not the public IP). The proxy runs on the same VM as the MCP server, so localhost works.
+
+### What to Test with Inspector
+
+Use the Inspector to:
+- View all 6 available tools
+- Call `rag_get_stats` to verify database state
+- Test `rag_search` with real queries
+- Verify `rag_ingest_document` responses
+- Explore tool parameters interactively
+
 ## Quick Reference
 
 | Task | Command |
@@ -420,6 +483,7 @@ If a specific MCP tool fails:
 | Restart | `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose restart hermes"` |
 | Smoke test | `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.smoke_test"` |
 | Get stats | `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.test_stats"` |
+| MCP Inspector | `bash scripts/mcp-inspector.sh` |
 
 ## Additional Resources
 
