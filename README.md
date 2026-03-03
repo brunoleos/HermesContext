@@ -83,8 +83,8 @@ docker compose logs -f hermes
 # Health check (endpoint MCP ativo)
 curl -s http://localhost:9090/mcp | head
 
-# Testar via MCP Inspector
-npx @modelcontextprotocol/inspector http://localhost:9090/mcp
+# Testar via MCP Inspector (script automatizado — abre túnel SSH + browser)
+bash scripts/mcp-inspector.sh
 ```
 
 ## Configuração MCP Client

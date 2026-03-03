@@ -416,36 +416,44 @@ The MCP Inspector is a web-based interface for interactively testing MCP tools. 
 ### Using the MCP Inspector Script
 
 The project includes an automated script that:
-1. Restarts the Inspector on the VM (kills previous processes on ports 6274/6277)
-2. Captures the auth token from logs
-3. Opens a local SSH tunnel
-4. Opens the browser with the full URL
+
+1. Kills old Inspector processes on the VM (`pkill -9 node`) to free ports 6274/6277
+2. Starts the Inspector on the VM in background via `nohup` + `< /dev/null` (prevents SSH from blocking)
+3. Polls the VM log to capture the auth token automatically
+4. Frees local ports if occupied (Windows: `netstat -ano` + `taskkill`)
+5. Opens a local SSH tunnel (`-L 6274:localhost:6274 -L 6277:localhost:6277 -N`)
+6. Opens the browser with query params that pre-configure `streamable-http` transport
 
 Run the script from your local machine:
 ```bash
 bash scripts/mcp-inspector.sh
 ```
 
+The browser URL includes transport configuration via query params:
+```text
+http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&serverUrl=http://localhost:9090/mcp
+```
+
 The script uses these default values:
 - SSH Host: ubuntu@$VM_IP
 - SSH Key: $HOME/.ssh/id_ed25519
 - MCP URL: http://localhost:9090/mcp
-- Inspector ports: 6274 (web), 6277 (proxy)
+- Inspector ports: 6274 (web UI), 6277 (proxy server)
 
 ### Manual MCP Inspector Setup
 
 If you need to run the Inspector manually:
 
-**Step 1: Start Inspector on VM**
+**Step 1: Kill old Inspector and start fresh on VM**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP
-pkill -f '@modelcontextprotocol/inspector' 2>/dev/null || true
+pkill -9 node 2>/dev/null; true
 npx @modelcontextprotocol/inspector http://localhost:9090/mcp
 ```
 
 **Step 2: Get Auth Token**
 The Inspector will output a URL with a token, e.g.:
-```
+```text
 MCP Inspector is up and running at:
    http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
 ```
@@ -455,13 +463,13 @@ MCP Inspector is up and running at:
 ssh -i $SSH_KEY -L 6274:localhost:6274 -L 6277:localhost:6277 -N ubuntu@$VM_IP
 ```
 
-**Step 4: Open Browser**
+**Step 4: Open Browser (with transport pre-configured)**
 Navigate to:
-```
-http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
+```text
+http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&serverUrl=http://localhost:9090/mcp
 ```
 
-> **Important**: In the Inspector interface, the server URL should be `http://localhost:9090/mcp` (not the public IP). The proxy runs on the same VM as the MCP server, so localhost works.
+> **Important**: The server URL must be `http://localhost:9090/mcp` (not the public IP). The proxy runs on the same VM as the MCP server, so localhost works. The query params `transport=streamable-http&serverUrl=...` pre-configure the Inspector UI automatically.
 
 ### What to Test with Inspector
 

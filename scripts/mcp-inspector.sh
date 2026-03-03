@@ -22,7 +22,7 @@ echo ""
 echo "[1/4] Reiniciando Inspector na VM..."
 ssh -i "$SSH_KEY" "$SSH_HOST" "pkill -9 node 2>/dev/null; true" 2>/dev/null
 sleep 2
-ssh -i "$SSH_KEY" "$SSH_HOST" "rm -f $INSPECTOR_LOG && nohup npx @modelcontextprotocol/inspector $MCP_URL > $INSPECTOR_LOG 2>&1 &" 2>/dev/null
+ssh -i "$SSH_KEY" "$SSH_HOST" "rm -f $INSPECTOR_LOG && nohup npx @modelcontextprotocol/inspector $MCP_URL > $INSPECTOR_LOG 2>&1 < /dev/null &" 2>/dev/null
 sleep 4
 
 # 2. Aguardar token no log
@@ -43,8 +43,15 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-# 3. Abrir túnel SSH
+# 3. Abrir túnel SSH (limpa portas locais primeiro se necessário)
 echo "[3/4] Abrindo túnel SSH local (portas 6274/6277)..."
+for port in 6274 6277; do
+  pid=$(netstat -ano 2>/dev/null | grep ":${port} " | grep "LISTENING" | awk '{print $NF}' | head -1)
+  if [ -n "$pid" ]; then
+    taskkill //PID "$pid" //F > /dev/null 2>&1 || true
+  fi
+done
+
 ssh -i "$SSH_KEY" \
   -L 6274:localhost:6274 \
   -L 6277:localhost:6277 \
@@ -53,7 +60,7 @@ TUNNEL_PID=$!
 sleep 2
 
 # 4. Abrir browser
-URL="http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=$TOKEN"
+URL="http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=$TOKEN&transport=streamable-http&serverUrl=http://localhost:9090/mcp"
 echo "[4/4] Abrindo browser..."
 echo ""
 echo "  URL: $URL"

@@ -534,11 +534,30 @@ Se retornar JSON com `serverInfo` e `capabilities`, o MCP server está funcionan
 
 ### Passo 4.3 — Testar via MCP Inspector
 
-O MCP Inspector é uma interface web para testar os tools interativamente.
+O MCP Inspector é uma interface web para testar os tools interativamente. O projeto inclui um script automatizado que gerencia todo o workflow (VM + local).
+
+#### Opção 1: Script automatizado (recomendado)
+
+No seu **PC local**, execute:
+
+```bash
+bash scripts/mcp-inspector.sh
+```
+
+O script automaticamente:
+
+1. Mata processos antigos do Inspector na VM (libera portas 6274/6277)
+2. Inicia o Inspector na VM em background
+3. Captura o auth token do log
+4. Libera portas locais se ocupadas e abre túnel SSH
+5. Abre o browser com transporte `streamable-http` pré-configurado via query params
+
+#### Opção 2: Setup manual
 
 **Na VM**, inicie o Inspector:
 
 ```bash
+pkill -9 node 2>/dev/null; true
 npx @modelcontextprotocol/inspector http://localhost:9090/mcp
 ```
 
@@ -558,12 +577,14 @@ Saída:
 ssh -i ~/.ssh/id_ed25519 -L 6274:localhost:6274 -L 6277:localhost:6277 ubuntu@<vm-ip>
 ```
 
-Agora abra no navegador do seu PC:
+Agora abra no navegador do seu PC (com transporte pré-configurado):
 ```
-http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>
+http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&serverUrl=http://localhost:9090/mcp
 ```
 
-> ⚠️ **Importante**: na interface do Inspector, a URL do server deve ser `http://localhost:9090/mcp` (não o IP público). O proxy do Inspector roda na mesma VM que o MCP server, então `localhost` funciona. Usar o IP público causa erro `421 Invalid Host header`.
+> ⚠️ **Importante**: a URL do server deve ser `http://localhost:9090/mcp` (não o IP público). O proxy do Inspector roda na mesma VM que o MCP server, então `localhost` funciona. Usar o IP público causa erro `421 Invalid Host header`.
+>
+> **Dica**: os query params `transport=streamable-http&serverUrl=...` configuram o Inspector automaticamente sem precisar alterar na UI.
 
 Na interface do Inspector você pode:
 - Ver os 6 tools listados (rag_search, rag_ingest_document, etc.)
@@ -847,9 +868,18 @@ O FastMCP passa a instância do server como argumento para o lifespan. A assinat
 
 ### MCP Inspector: "421 Invalid Host header"
 
-O Inspector deve conectar via `http://localhost:9090/mcp`, não via IP público. Use SSH tunnel para acessar o Inspector do seu PC:
+O Inspector deve conectar via `http://localhost:9090/mcp`, não via IP público. Use o script automatizado que já configura tudo:
+```bash
+bash scripts/mcp-inspector.sh
+```
+
+Se preferir manualmente, use SSH tunnel e acesse com query params de transporte:
 ```bash
 ssh -i ~/.ssh/id_ed25519 -L 6274:localhost:6274 -L 6277:localhost:6277 ubuntu@<vm-ip>
+```
+
+```text
+http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&serverUrl=http://localhost:9090/mcp
 ```
 
 ### `docker compose logs` retorna "no configuration file provided"

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -i ~/.ssh/id_ed25519 ubuntu@147.15.91.57 \"uname -a\")"
+    ]
+  }
+}
