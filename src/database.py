@@ -46,6 +46,19 @@ SCHEMA_DDL = [
         CONSTRAINT uq_doc_chunk UNIQUE (document_id, chunk_index)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS ingest_jobs (
+        job_id          VARCHAR2(36)   PRIMARY KEY,
+        document_id     NUMBER,
+        file_path       VARCHAR2(1000) NOT NULL,
+        status          VARCHAR2(20)   NOT NULL,
+        progress        NUMBER         DEFAULT 0,
+        total_chunks    NUMBER,
+        error_message   CLOB,
+        created_at      TIMESTAMP      DEFAULT SYSTIMESTAMP,
+        updated_at      TIMESTAMP      DEFAULT SYSTIMESTAMP
+    )
+    """,
 ]
 
 INDEX_DDL = [
@@ -61,6 +74,9 @@ INDEX_DDL = [
     """
     CREATE INDEX idx_chunk_text ON chunks(chunk_text)
         INDEXTYPE IS CTXSYS.CONTEXT
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ingest_job_status ON ingest_jobs(status)
     """,
 ]
 
@@ -361,6 +377,83 @@ class Database:
                 }
                 for r in cursor.fetchall()
             ]
+
+    # ── Ingest Jobs ─────────────────────────────────
+
+    def create_ingest_job(self, job_id: str, file_path: str) -> None:
+        """Cria registro de job de ingest com status PENDING."""
+        with self.get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO ingest_jobs (job_id, file_path, status, progress)
+                VALUES (:job_id, :file_path, 'PENDING', 0)
+                """,
+                {"job_id": job_id, "file_path": file_path},
+            )
+
+    def update_ingest_job(
+        self,
+        job_id: str,
+        status: str,
+        progress: int = 0,
+        document_id: int | None = None,
+        total_chunks: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Atualiza status e progresso de um job de ingest."""
+        with self.get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE ingest_jobs
+                SET status = :status,
+                    progress = :progress,
+                    document_id = NVL(:document_id, document_id),
+                    total_chunks = NVL(:total_chunks, total_chunks),
+                    error_message = :error_message,
+                    updated_at = SYSTIMESTAMP
+                WHERE job_id = :job_id
+                """,
+                {
+                    "status": status,
+                    "progress": progress,
+                    "document_id": document_id,
+                    "total_chunks": total_chunks,
+                    "error_message": error_message,
+                    "job_id": job_id,
+                },
+            )
+
+    def get_ingest_job(self, job_id: str) -> dict | None:
+        """Retorna dados de um job de ingest."""
+        with self.get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT job_id, document_id, file_path, status, progress,
+                       total_chunks, error_message,
+                       TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                       TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at
+                FROM ingest_jobs
+                WHERE job_id = :job_id
+                """,
+                {"job_id": job_id},
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "job_id": row[0],
+                "document_id": row[1],
+                "file_path": row[2],
+                "status": row[3],
+                "progress": row[4],
+                "total_chunks": row[5],
+                "error_message": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+            }
 
     # ── Stats ───────────────────────────────────────
 

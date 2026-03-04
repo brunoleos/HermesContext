@@ -11,12 +11,14 @@ LLMs connect via: http://<vm-ip>:9090/mcp
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import json
 import logging
 import os
 import sys
 import time
+import uuid
 from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any, Optional
@@ -344,83 +346,194 @@ async def rag_ingest_file(
         except json.JSONDecodeError:
             return "❌ Error: metadata must be a valid JSON string"
 
-    engine = _get_engine()
-    t_start = time.time()
+    db = _get_db()
+    job_id = str(uuid.uuid4())
 
-    # If file
-    if os.path.isfile(path):
-        try:
+    if not os.path.exists(path):
+        return f"❌ Path does not exist or is not accessible: {path}"
+
+    db.create_ingest_job(job_id=job_id, file_path=path)
+    asyncio.create_task(
+        _process_ingest_job(
+            job_id=job_id,
+            path=path,
+            title=title,
+            doc_type=doc_type,
+            meta_dict=meta_dict,
+        )
+    )
+
+    return (
+        f"⏳ Ingest iniciado em background.\n"
+        f"- **job_id**: `{job_id}`\n"
+        f"- **Arquivo**: {path}\n\n"
+        f"Use `rag_get_ingest_status` com o job_id para acompanhar o progresso."
+    )
+
+
+async def _process_ingest_job(
+    job_id: str,
+    path: str,
+    title: str | None,
+    doc_type: str | None,
+    meta_dict: dict | None,
+) -> None:
+    """Background task: processa ingest e atualiza status no Oracle."""
+    db = _get_db()
+    engine = _get_engine()
+
+    db.update_ingest_job(job_id=job_id, status="PROCESSING", progress=10)
+
+    def _ingest_file(file_path: str, file_title: str, content: str, file_metadata: dict) -> dict:
+        """Helper to ingest a single file (runs in executor)."""
+        return engine.ingest_document(
+            title=file_title,
+            content=content,
+            source=file_path,
+            doc_type=doc_type,
+            metadata=file_metadata,
+        )
+
+    try:
+        if os.path.isfile(path):
             content = _read_file_from_disk(path)
             if not content.strip():
-                return f"❌ Empty file: {path}"
+                db.update_ingest_job(
+                    job_id=job_id,
+                    status="FAILED",
+                    progress=0,
+                    error_message="Arquivo vazio.",
+                )
+                return
 
             file_title = title or os.path.splitext(os.path.basename(path))[0]
-            # Merge user metadata with auto-generated file metadata
             file_metadata = dict(meta_dict) if meta_dict else {}
             file_metadata["filename"] = os.path.basename(path)
             file_metadata["size_chars"] = len(content)
 
-            result = engine.ingest_document(
-                title=file_title,
-                content=content,
-                source=path,
-                doc_type=doc_type,
-                metadata=file_metadata,
+            result = await asyncio.to_thread(
+                _ingest_file,
+                path,
+                file_title,
+                content,
+                file_metadata,
             )
-            elapsed = time.time() - t_start
-            return (
-                f"✅ Arquivo ingerido com sucesso.\n"
-                f"- **Arquivo**: {os.path.basename(path)}\n"
-                f"- **ID**: {result['document_id']}\n"
-                f"- **Chunks**: {result['chunk_count']}\n"
-                f"- **Tempo**: {elapsed:.1f}s"
+            db.update_ingest_job(
+                job_id=job_id,
+                status="COMPLETED",
+                progress=100,
+                document_id=result["document_id"],
+                total_chunks=result["chunk_count"],
             )
-        except Exception as e:
-            return f"❌ Error ingesting file: {e}"
 
-    # If directory
-    elif os.path.isdir(path):
-        files = sorted(glob.glob(os.path.join(path, "**/*.*"), recursive=True))
-        files = [f for f in files if os.path.isfile(f)]
+        elif os.path.isdir(path):
+            files = sorted(glob.glob(os.path.join(path, "**/*.*"), recursive=True))
+            files = [f for f in files if os.path.isfile(f)]
 
-        if not files:
-            return f"❌ No files found in: {path}"
-
-        total_docs = 0
-        total_chunks = 0
-        results_lines = [f"📁 Directory ingestion: {path}\n"]
-
-        for file_path in files:
-            try:
-                content = _read_file_from_disk(file_path)
-                if not content.strip():
-                    continue
-
-                title = os.path.splitext(os.path.basename(file_path))[0]
-                # Merge user metadata with auto-generated file metadata
-                file_metadata = dict(meta_dict) if meta_dict else {}
-                file_metadata["filename"] = os.path.basename(file_path)
-                file_metadata["size_chars"] = len(content)
-
-                result = engine.ingest_document(
-                    title=title,
-                    content=content,
-                    source=file_path,
-                    doc_type=doc_type,
-                    metadata=file_metadata,
+            if not files:
+                db.update_ingest_job(
+                    job_id=job_id,
+                    status="FAILED",
+                    progress=0,
+                    error_message="Nenhum arquivo encontrado no diretório.",
                 )
-                total_docs += 1
-                total_chunks += result["chunk_count"]
-                results_lines.append(f"  ✅ {os.path.basename(file_path)} (ID: {result['document_id']}, chunks: {result['chunk_count']})")
-            except Exception as e:
-                results_lines.append(f"  ⚠️ {os.path.basename(file_path)}: {e}")
+                return
 
-        elapsed = time.time() - t_start
-        results_lines.append(f"\n**Summary**: {total_docs} documents, {total_chunks} chunks, {elapsed:.1f}s")
-        return "\n".join(results_lines)
+            total_chunks = 0
+            errors = []
 
-    else:
-        return f"❌ Path does not exist or is not accessible: {path}"
+            for i, file_path in enumerate(files):
+                try:
+                    content = _read_file_from_disk(file_path)
+                    if not content.strip():
+                        continue
+
+                    file_title = os.path.splitext(os.path.basename(file_path))[0]
+                    file_metadata = dict(meta_dict) if meta_dict else {}
+                    file_metadata["filename"] = os.path.basename(file_path)
+                    file_metadata["size_chars"] = len(content)
+
+                    result = await asyncio.to_thread(
+                        _ingest_file,
+                        file_path,
+                        file_title,
+                        content,
+                        file_metadata,
+                    )
+                    total_chunks += result["chunk_count"]
+                except Exception as e:
+                    errors.append(f"{os.path.basename(file_path)}: {e}")
+
+                progress = int(10 + 90 * (i + 1) / len(files))
+                db.update_ingest_job(job_id=job_id, status="PROCESSING", progress=progress)
+
+            error_msg = "; ".join(errors) if errors else None
+            db.update_ingest_job(
+                job_id=job_id,
+                status="COMPLETED",
+                progress=100,
+                total_chunks=total_chunks,
+                error_message=error_msg,
+            )
+
+    except Exception as e:
+        logger.exception("Erro no job de ingest %s", job_id)
+        db.update_ingest_job(
+            job_id=job_id,
+            status="FAILED",
+            progress=0,
+            error_message=str(e),
+        )
+
+
+@mcp.tool(
+    name="rag_get_ingest_status",
+    annotations={
+        "title": "Get Ingest Job Status",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def rag_get_ingest_status(
+    job_id: str = Field(
+        ...,
+        description="Job ID returned by rag_ingest_file",
+    ),
+) -> str:
+    """Verifica o status e progresso de um job de ingest assíncrono.
+
+    Returns:
+        str: Status atual (PENDING, PROCESSING, COMPLETED, FAILED), progresso %,
+             document_id e chunk_count quando concluído, ou mensagem de erro.
+    """
+    db = _get_db()
+    job = db.get_ingest_job(job_id)
+
+    if not job:
+        return f"❌ Job não encontrado: `{job_id}`"
+
+    status = job["status"]
+    progress = job["progress"] or 0
+    icon = {"PENDING": "⏳", "PROCESSING": "🔄", "COMPLETED": "✅", "FAILED": "❌"}.get(status, "❓")
+
+    lines = [
+        f"{icon} **Status**: {status} ({progress}%)",
+        f"- **job_id**: `{job['job_id']}`",
+        f"- **Arquivo**: {job['file_path']}",
+        f"- **Iniciado em**: {job['created_at']}",
+        f"- **Atualizado em**: {job['updated_at']}",
+    ]
+
+    if job["document_id"] is not None:
+        lines.append(f"- **document_id**: {job['document_id']}")
+    if job["total_chunks"] is not None:
+        lines.append(f"- **Chunks**: {job['total_chunks']}")
+    if job["error_message"]:
+        lines.append(f"- **Erro**: {job['error_message']}")
+
+    return "\n".join(lines)
 
 
 @mcp.tool(

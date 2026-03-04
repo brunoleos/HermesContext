@@ -34,7 +34,7 @@ HermesContext is a RAG (Retrieval-Augmented Generation) MCP Server providing doc
 
 ## MCP Server Tools
 
-The HermesContext MCP Server exposes 7 tools:
+The HermesContext MCP Server exposes 8 tools:
 
 ### 1. rag_search
 **Purpose**: Semantic search using embedding + keyword hybrid search
@@ -55,35 +55,43 @@ The HermesContext MCP Server exposes 7 tools:
 
 ### 3. rag_ingest_file
 **Purpose**: Ingest a file or directory already on the VM (in /data/) into the RAG knowledge base
+- **Asynchronous**: returns a `job_id` immediately, processes in background
 - Reads files directly from the container's /data/ volume
 - Supports .txt, .md, .csv, .json, .pdf (PDF via PyMuPDF)
 - Processes directories recursively (all files ingested)
 - Security: path must start with /data/
-- **Parameters**: path (required), title (optional, defaults to filename), doc_type (optional)
-- **Returns**: Summary with document_id, chunk_count, elapsed time
-- **Typical latency**: ~1-10s per file (depends on file size)
-- **Workflow**: SCP file to ~/docs/ on VM → call rag_ingest_file(path="/data/filename.pdf")
+- **Parameters**: path (required), title (optional, defaults to filename), doc_type (optional), metadata (optional, JSON string)
+- **Returns**: `job_id` for tracking progress via `rag_get_ingest_status`
+- **Typical latency**: returns immediately; processing takes ~1-10s per file
+- **Workflow**: SCP file to ~/docs/ on VM → call `rag_ingest_file` → poll `rag_get_ingest_status` with job_id
 
-### 4. rag_list_documents
+### 4. rag_get_ingest_status
+**Purpose**: Check the status and progress of an async ingest job
+- Tracks jobs started by `rag_ingest_file`
+- **Parameters**: job_id (required, string returned by rag_ingest_file)
+- **Returns**: status (PENDING/PROCESSING/COMPLETED/FAILED), progress %, document_id, chunk_count, error_message
+- **Typical latency**: <100ms
+
+### 5. rag_list_documents
 **Purpose**: List indexed documents with pagination
 - **Parameters**: limit (1-100), offset, doc_type (filter), response_format
 - **Returns**: List of documents with ID, title, type, chunk_count, created_at
 - **Typical latency**: <100ms
 
-### 5. rag_get_document
+### 6. rag_get_document
 **Purpose**: Get details of a specific document by ID
 - **Parameters**: document_id, response_format
 - **Returns**: Title, source, type, metadata, chunk_count, created_at
 - **Typical latency**: <100ms
 
-### 6. rag_delete_document
+### 7. rag_delete_document
 **Purpose**: Delete a document and all its chunks
 - ⚠️ Irreversible action
 - **Parameters**: document_id
 - **Returns**: Confirmation message
 - **Typical latency**: <500ms
 
-### 7. rag_get_stats
+### 8. rag_get_stats
 **Purpose**: Get statistics about the RAG knowledge base
 - **Parameters**: response_format
 - **Returns**: Total documents, chunks, tokens, distribution by type
@@ -91,8 +99,28 @@ The HermesContext MCP Server exposes 7 tools:
 
 ### Resource: rag://config
 **Purpose**: Current RAG engine configuration
-- embedding_model, embedding_dim, reranker_model, chunk_size, chunk_overlap
-- retrieval_top_k, rerank_top_k, vector_weight, keyword_weight, cache_ttl_seconds
+- embedding_model (BAAI/bge-m3), embedding_dim (1024), reranker_model (ms-marco-MiniLM-L-6-v2)
+- chunk_size (512 tokens), chunk_overlap (64 tokens)
+- retrieval_top_k (20), rerank_top_k (5)
+- vector_weight (0.7), keyword_weight (0.3), rrf_k (60)
+- cache_similarity_threshold (0.95), cache_ttl_seconds (3600)
+
+### Search Pipeline
+```
+Query → Semantic Cache (Redis) → BGE-M3 Embed → Oracle VECTOR Search (k=20)
+                                              → Oracle Text Search (k=20)
+                                              → RRF Fusion (0.7/0.3)
+                                              → Cross-Encoder Reranking → Top 5 Results
+```
+| Stage | Warm Latency |
+|-------|-------------|
+| Semantic cache check | ~1ms |
+| BGE-M3 query embedding | ~100ms |
+| Oracle VECTOR search | ~5ms |
+| Oracle Text keyword search | ~5ms |
+| RRF fusion + dedup | ~1ms |
+| MiniLM cross-encoder reranking | ~150ms |
+| **Total (warm, with reranker)** | **~350ms** |
 
 ## Prerequisites
 
@@ -217,13 +245,13 @@ Verify tunnel is active:
 
 Once active, the MCP server is available at `http://localhost:9090/mcp`.
 
-## Ingest de Documentos
+## Document Ingestion
 
-Workflow para indexar novos documentos na base de conhecimento RAG. Requer túnel SSH ativo na porta 9090.
+Workflow to index new documents into the RAG knowledge base. Requires an active SSH tunnel on port 9090.
 
-### Pré-requisito: Verificar túnel SSH
+### Prerequisite: Verify SSH Tunnel
 
-Confirmar que o túnel está ativo antes de usar as MCP tools:
+Confirm the tunnel is active before using MCP tools:
 
 ```bash
 # Windows
@@ -233,73 +261,87 @@ netstat -ano | findstr :9090
 ss -tlnp | grep 9090
 ```
 
-Se não estiver ativo, abrir o túnel (ver Step 9 acima).
+If not active, open the tunnel (see Step 9 above).
 
-### Passo 1: Transferir arquivo para a VM
+### Step 1: Transfer File to VM
 
-Usar SCP para enviar o arquivo local para o diretório `~/docs/` na VM (mapeado para `/data/` no container):
+Use SCP to upload the local file to `~/docs/` on the VM (mapped to `/data/` in the container):
 
 ```bash
-# Arquivo único
-scp -i $SSH_KEY /caminho/local/documento.pdf ubuntu@$VM_IP:~/docs/
+# Single file
+scp -i $SSH_KEY /local/path/document.pdf ubuntu@$VM_IP:~/docs/
 
-# Múltiplos arquivos
-scp -i $SSH_KEY /caminho/local/*.pdf ubuntu@$VM_IP:~/docs/
+# Multiple files
+scp -i $SSH_KEY /local/path/*.pdf ubuntu@$VM_IP:~/docs/
 
-# Diretório inteiro
-scp -i $SSH_KEY -r /caminho/local/pasta/ ubuntu@$VM_IP:~/docs/
+# Entire directory
+scp -i $SSH_KEY -r /local/path/folder/ ubuntu@$VM_IP:~/docs/
 ```
 
-Verificar que o arquivo chegou na VM:
+Verify the file arrived on the VM:
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "ls -la ~/docs/"
 ```
 
-### Passo 2: Ingerir via MCP tool `rag_ingest_file`
+### Step 2: Ingest via MCP tool `rag_ingest_file`
 
-Com o túnel ativo e o arquivo na VM, chamar a tool MCP:
+With the tunnel active and the file on the VM, call the MCP tool:
 
-**Arquivo único:**
+**Single file:**
 ```
-rag_ingest_file(path="/data/documento.pdf", title="Título do Documento", doc_type="legislacao")
-```
-
-**Diretório inteiro** (processa recursivamente todos os arquivos suportados):
-```
-rag_ingest_file(path="/data/", doc_type="legislacao")
+rag_ingest_file(path="/data/document.pdf", title="Document Title", doc_type="legislation")
 ```
 
-**Parâmetros:**
-- `path` (obrigatório) — deve começar com `/data/`
-- `title` (opcional) — padrão: nome do arquivo
-- `doc_type` (opcional) — categoria do documento (ex: `legislacao`, `manual`, `relatorio`)
-
-**Formatos suportados:** `.txt`, `.md`, `.csv`, `.json`, `.pdf`
-
-### Passo 3: Verificar resultado
-
-A tool retorna:
-```json
-{
-  "document_id": 42,
-  "chunk_count": 18,
-  "elapsed_ms": 3200,
-  "title": "Título do Documento"
-}
+**Entire directory** (processes recursively all supported files):
+```
+rag_ingest_file(path="/data/", doc_type="legislation")
 ```
 
-Confirmar ingestão com `rag_list_documents` ou `rag_get_stats`.
+**Parameters:**
+- `path` (required) — must start with `/data/`
+- `title` (optional) — defaults to filename
+- `doc_type` (optional) — document category (e.g., `legislation`, `manual`, `report`)
+- `metadata` (optional) — custom metadata as JSON string
 
-### Alternativa: Ingest via CLI (sem túnel)
+**Supported formats:** `.txt`, `.md`, `.csv`, `.json`, `.pdf`
 
-Quando o túnel não estiver disponível, usar o script diretamente via SSH:
+### Step 3: Track Ingestion Progress
+
+`rag_ingest_file` is **asynchronous** — it returns a `job_id` immediately:
+
+```
+⏳ Ingest started in background.
+- **job_id**: `a1b2c3d4-...`
+- **File**: /data/document.pdf
+
+Use `rag_get_ingest_status` with the job_id to track progress.
+```
+
+Poll the job status until completion:
+```
+rag_get_ingest_status(job_id="a1b2c3d4-...")
+```
+
+Completed response:
+```
+✅ **Status**: COMPLETED (100%)
+- **job_id**: `a1b2c3d4-...`
+- **document_id**: 42
+- **Chunks**: 18
+```
+
+Confirm ingestion with `rag_list_documents` or `rag_get_stats`.
+
+### Alternative: Ingest via CLI (no tunnel)
+
+When the tunnel is not available, use the script directly via SSH:
 
 ```bash
-# Arquivo único
-ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/documento.pdf --title 'Título' --type legislacao"
+# Single file
+ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/document.pdf --title 'Title' --type legislation"
 
-# Diretório inteiro
-ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/ --type legislacao"
+# Entire directory
+ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/ --type legislation"
 ```
 
 ## Smoke Tests
@@ -319,6 +361,9 @@ This test: ingests a test document → tests embedding → tests vector search �
 # Stats
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.test_stats"
 
+# Get stats (detailed)
+ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.test_get_stats"
+
 # Ingest document
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.test_ingest_document"
 
@@ -330,6 +375,9 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes 
 
 # Get document
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.test_get_document"
+
+# Inspect MCP tool schemas
+ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.check_tools"
 ```
 
 ## Performance Characteristics
@@ -337,10 +385,12 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes 
 | Operation | First Call (Cold) | Subsequent Calls (Warm) |
 |-----------|-------------------|------------------------|
 | rag_ingest_document | ~10-12 seconds | ~500ms |
-| rag_ingest_file | ~10-12 seconds (first) | ~1-10s (depends on file size) |
-| rag_search | ~12 seconds | ~4-50ms |
+| rag_ingest_file | returns immediately | processing: ~1-10s/file |
+| rag_get_ingest_status | <100ms | <50ms |
+| rag_search | ~12 seconds | ~350ms (with reranker) |
 | rag_list_documents | <100ms | <50ms |
 | rag_get_document | <100ms | <50ms |
+| rag_delete_document | <500ms | <500ms |
 | rag_get_stats | <100ms | <50ms |
 
 > **Note**: First call latency is higher due to model loading into memory. Models are cached in the container and persist between calls.
@@ -367,6 +417,10 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose build hermes
 ### Health Check
 
 ```bash
+# Automated health check (MCP, Redis, containers, disk, RAM)
+ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && bash scripts/health_check.sh"
+
+# Manual checks
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker stats --no-stream"
 ssh -i $SSH_KEY ubuntu@$VM_IP "free -h && df -h /"
 ```
@@ -512,9 +566,11 @@ taskkill /F /IM ssh.exe
 | Check status | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose ps"` |
 | View logs | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs --tail 20 hermes"` |
 | Restart | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose restart hermes"` |
+| Health check | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && bash scripts/health_check.sh"` |
 | Smoke test | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.smoke_test"` |
 | SCP upload | `scp -i $SSH_KEY /local/file.pdf ubuntu@$VM_IP:~/docs/` |
-| Ingest file (MCP) | `rag_ingest_file(path="/data/file.pdf", doc_type="legislacao")` |
+| Ingest file (MCP) | `rag_ingest_file(path="/data/file.pdf", doc_type="legislation")` |
+| Check ingest status | `rag_get_ingest_status(job_id="<job_id>")` |
 | MCP Inspector | `bash scripts/mcp-inspector.sh` |
 | Tunnel start (Windows) | `Start-Process -FilePath "ssh" -ArgumentList "-i $env:USERPROFILE\.ssh\id_ed25519 -L 9090:localhost:9090 -N ubuntu@147.15.91.57" -WindowStyle Hidden` |
 | Tunnel status | `netstat -ano \| findstr :9090` (Windows) / `ss -tlnp \| grep 9090` (Linux) |
