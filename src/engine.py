@@ -175,8 +175,8 @@ class RAGEngine:
             chunk_records.append(
                 {
                     "chunk_index": i,
-                    "chunk_text": raw[:4000],
-                    "enriched_text": enr[:4000],
+                    "chunk_text": raw,  # CLOB — sem limite de 4000 caracteres
+                    "enriched_text": enr,  # CLOB — sem limite de 4000 caracteres
                     "token_count": len(raw.split()),
                     "embedding": emb_vec,
                 }

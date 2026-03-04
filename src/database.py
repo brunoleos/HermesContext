@@ -38,8 +38,8 @@ SCHEMA_DDL = [
         document_id     NUMBER         NOT NULL
                         REFERENCES documents(id) ON DELETE CASCADE,
         chunk_index     NUMBER         NOT NULL,
-        chunk_text      VARCHAR2(4000) NOT NULL,
-        enriched_text   VARCHAR2(4000),
+        chunk_text      CLOB           NOT NULL,
+        enriched_text   CLOB,
         token_count     NUMBER,
         embedding       VECTOR(1024, FLOAT32),
         created_at      TIMESTAMP DEFAULT SYSTIMESTAMP,
@@ -77,6 +77,29 @@ INDEX_DDL = [
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_ingest_job_status ON ingest_jobs(status)
+    """,
+]
+
+# ── Migration DDL (applied after schema creation) ──────
+# For existing databases: convert chunk_text and enriched_text from VARCHAR2(4000) to CLOB
+# to support larger chunks (fixing ORA-12899 truncation errors on 4k+ character chunks)
+MIGRATION_DDL = [
+    """
+    BEGIN
+        EXECUTE IMMEDIATE 'DROP INDEX idx_chunk_text';
+        EXCEPTION WHEN OTHERS THEN
+            IF SQLCODE != -1418 THEN RAISE; END IF;
+    END;
+    """,
+    """
+    ALTER TABLE chunks MODIFY (chunk_text CLOB NOT NULL)
+    """,
+    """
+    ALTER TABLE chunks MODIFY (enriched_text CLOB)
+    """,
+    """
+    CREATE INDEX idx_chunk_text ON chunks(chunk_text)
+        INDEXTYPE IS CTXSYS.CONTEXT
     """,
 ]
 
@@ -127,9 +150,11 @@ class Database:
             self._pool.release(conn)
 
     def init_schema(self) -> None:
-        """Cria tabelas e índices se não existirem."""
+        """Cria tabelas e índices se não existirem, e aplica migrations."""
         with self.get_conn() as conn:
             cursor = conn.cursor()
+
+            # Execute schema creation DDLs
             for ddl in SCHEMA_DDL + INDEX_DDL:
                 try:
                     cursor.execute(ddl)
@@ -139,7 +164,23 @@ class Database:
                     if hasattr(err, "code") and err.code == 955:
                         continue
                     raise
-        logger.info("Schema inicializado.")
+
+            # Execute migrations (idempotent, applied to existing databases)
+            for migration in MIGRATION_DDL:
+                try:
+                    cursor.execute(migration)
+                except oracledb.DatabaseError as e:
+                    err = e.args[0]
+                    # ORA-00955 = index/object already exists
+                    # ORA-01430 = column being modified is already CLOB
+                    # ORA-01442 = column to be modified must be empty to change datatype
+                    if hasattr(err, "code") and err.code in (955, 1430, 1442):
+                        logger.debug(f"Migration skipped (idempotent): {migration[:50]}...")
+                        continue
+                    # ORA-01418 is handled in PL/SQL block, shouldn't reach here
+                    raise
+
+        logger.info("Schema inicializado e migrations aplicadas.")
 
     # ── Documents CRUD ──────────────────────────────
 
