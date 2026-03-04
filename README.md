@@ -53,6 +53,7 @@ Hermes não compete com o Oráculo — ele opera a seu serviço.
 |------|-----------|-----|
 | `rag_search` | Busca semântica híbrida (vector + keyword + reranking) | Read |
 | `rag_ingest_document` | Indexa documento (chunk → embed → store) | Write |
+| `rag_ingest_file` | Ingere arquivo ou diretório já na VM (`/data/`) | Write |
 | `rag_list_documents` | Lista documentos com paginação e filtros | Read |
 | `rag_get_document` | Detalhes de um documento por ID | Read |
 | `rag_delete_document` | Exclui documento e todos os chunks | Write |
@@ -196,7 +197,7 @@ ssh -i ~/.ssh/id_ed25519 -L 9090:localhost:9090 -N ubuntu@<vm-ip>
 #    rag_search, rag_list_documents, rag_get_document, rag_get_stats, rag_delete_document
 ```
 
-### Workflow B: Ingestão de Arquivos (via SSH)
+### Workflow B: Ingestão de Arquivos (via SCP + MCP tool)
 
 Para ingerir PDFs, textos ou pastas inteiras na base RAG:
 
@@ -204,26 +205,24 @@ Para ingerir PDFs, textos ou pastas inteiras na base RAG:
 # 1. Criar pasta de docs na VM (uma vez)
 ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> "mkdir -p ~/docs"
 
-# 2. Upload do arquivo para a VM
+# 2. Upload do arquivo para a VM via SCP
 scp -i ~/.ssh/id_ed25519 documento.pdf ubuntu@<vm-ip>:~/docs/
 
-# 3. Ingerir arquivo único (PDF, TXT, MD, CSV, JSON)
-ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> \
-  "cd ~/HermesContext && docker compose exec hermes \
-   python -m scripts.ingest_file /data/documento.pdf \
-   --title 'Resolução SAP 45/2024' --type resolucao"
+# 3. Chamar rag_ingest_file via MCP (com túnel SSH ativo em outro terminal)
+# Arquivo único:
+rag_ingest_file(path="/data/documento.pdf", title="Resolução SAP 45/2024", doc_type="resolucao")
 
-# 4. Ou ingerir pasta inteira (todos os arquivos recursivamente)
-ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> \
-  "cd ~/HermesContext && docker compose exec hermes \
-   python -m scripts.ingest_file /data/ --type legislacao"
+# Ou pasta inteira (recursivo):
+rag_ingest_file(path="/data/", doc_type="legislacao")
 
-# 5. Verificar ingestão via MCP
-#    rag_get_stats → total de documentos, chunks e tokens
+# 4. Verificar ingestão via MCP
+rag_get_stats()
 ```
 
-> O volume `/data` dentro do container mapeia para `~/docs` na VM (`docker-compose.yml`).
-> PDFs são extraídos automaticamente via PyMuPDF. Formatos suportados: `.txt`, `.md`, `.csv`, `.json`, `.pdf`.
+**Pré-requisito**: SSH tunnel deve estar ativo (ver Workflow A, passo 1).
+
+> O volume `/data` dentro do container mapeia para `~/docs` na VM. A tool `rag_ingest_file`
+> lê arquivos diretamente do `/data/` e os indexa. Formatos suportados: `.txt`, `.md`, `.csv`, `.json`, `.pdf`.
 
 ## Arquitetura
 

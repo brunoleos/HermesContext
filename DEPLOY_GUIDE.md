@@ -616,7 +616,7 @@ http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&se
 > **Dica**: os query params `transport=streamable-http&serverUrl=...` configuram o Inspector automaticamente sem precisar alterar na UI.
 
 Na interface do Inspector você pode:
-- Ver os 6 tools listados (rag_search, rag_ingest_document, etc.)
+- Ver os 7 tools listados (rag_search, rag_ingest_document, etc.)
 - Chamar `rag_get_stats` para verificar o estado do banco
 - Testar `rag_search` com queries reais
 
@@ -624,8 +624,10 @@ Na interface do Inspector você pode:
 
 ## Fase 5 — Ingestão dos Documentos Reais
 
-> A ingestão é feita via **SSH + script CLI** na VM — não via MCP tools.
-> Os MCP tools (`rag_search`, `rag_get_stats`, etc.) são usados para **consulta** dos documentos já indexados.
+> A ingestão pode ser feita de duas formas:
+>
+> 1. **Via MCP tool `rag_ingest_file`** (recomendado) — após transferir arquivos via SCP, chamar a tool com o caminho em `/data/`
+> 2. **Via SSH + script CLI** — executar `scripts/ingest_file.py` diretamente na VM
 
 ### Passo 5.1 — Preparar pasta de documentos na VM
 
@@ -685,6 +687,14 @@ docker compose exec hermes python -m scripts.ingest_file \
 
 Cada arquivo vira um documento separado. O título é inferido do nome do arquivo. A ingestão é sequencial com estatísticas por arquivo.
 
+> **Alternativa via MCP tool** (com SSH tunnel ativo, ver Passo 4.3):
+> Em vez dos passos 5.3/5.4, use a tool `rag_ingest_file` diretamente:
+>
+> ```text
+> rag_ingest_file(path="/data/resolucao_45.pdf", title="Resolução SAP 45/2024", doc_type="resolucao")
+> rag_ingest_file(path="/data/", doc_type="legislacao")  # diretório inteiro
+> ```
+
 ### Passo 5.5 — Verificar ingestão
 
 Via script na VM:
@@ -734,7 +744,7 @@ Edite `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) ou
 }
 ```
 
-Reinicie o Claude Desktop. Os 6 tools RAG aparecem na interface.
+Reinicie o Claude Desktop. Os 7 tools RAG aparecem na interface.
 
 ### Opção B: Claude Code (CLI)
 
@@ -856,7 +866,7 @@ Adicione:
 | 2 | Uma vez (ou após mudança de schema) | `python -m scripts.init_db` | Cria tabelas e índices no Oracle |
 | 3 | Uma vez (ou após rebuild Docker) | `python -m scripts.warmup_models` | Baixa BGE-M3 + MiniLM para o cache |
 | 4 | Uma vez (validação pré-produção) | `python -m scripts.smoke_test` | Testa pipeline inteiro e limpa dados de teste |
-| 5 | Sempre que tiver documentos novos | `python -m scripts.ingest_file <path>` | Ingere documentos na base RAG |
+| 5 | Sempre que tiver documentos novos | `rag_ingest_file` (MCP) ou `python -m scripts.ingest_file <path>` (CLI) | Ingere documentos na base RAG |
 | 6 | Periódico (cron a cada 5 min) | `./scripts/health_check.sh` | Verifica saúde de todos os componentes |
 
 > Todos os scripts `python -m scripts.*` devem ser executados via `docker compose run --rm hermes` ou `docker compose exec hermes` quando o serviço já está rodando.

@@ -42,7 +42,7 @@ Use this skill when:
 
 ## MCP Server Tools
 
-The HermesContext MCP Server exposes 6 tools:
+The HermesContext MCP Server exposes 7 tools:
 
 ### 1. rag_search
 **Purpose**: Semantic search using embedding + keyword hybrid search
@@ -61,26 +61,37 @@ The HermesContext MCP Server exposes 6 tools:
 - **Returns**: document_id, chunk_count, elapsed_ms
 - **Typical latency**: 10000-12000ms (first call slower due to model loading)
 
-### 3. rag_list_documents
+### 3. rag_ingest_file
+**Purpose**: Ingest a file or directory already on the VM (in /data/) into the RAG knowledge base
+- Reads files directly from the container's /data/ volume
+- Supports .txt, .md, .csv, .json, .pdf (PDF via PyMuPDF)
+- Processes directories recursively (all files ingested)
+- Security: path must start with /data/
+- **Parameters**: path (required), title (optional, defaults to filename), doc_type (optional)
+- **Returns**: Summary with document_id, chunk_count, elapsed time
+- **Typical latency**: ~1-10s per file (depends on file size)
+- **Workflow**: SCP file to ~/docs/ on VM → call rag_ingest_file(path="/data/filename.pdf")
+
+### 4. rag_list_documents
 **Purpose**: List indexed documents with pagination
 - **Parameters**: limit (1-100), offset, doc_type (filter), response_format
 - **Returns**: List of documents with ID, title, type, chunk_count, created_at
 - **Typical latency**: <100ms
 
-### 4. rag_get_document
+### 5. rag_get_document
 **Purpose**: Get details of a specific document by ID
 - **Parameters**: document_id, response_format
 - **Returns**: Title, source, type, metadata, chunk_count, created_at
 - **Typical latency**: <100ms
 
-### 5. rag_delete_document
+### 6. rag_delete_document
 **Purpose**: Delete a document and all its chunks
 - ⚠️ Irreversible action
 - **Parameters**: document_id
 - **Returns**: Confirmation message
 - **Typical latency**: <500ms
 
-### 6. rag_get_stats
+### 7. rag_get_stats
 **Purpose**: Get statistics about the RAG knowledge base
 - **Parameters**: response_format
 - **Returns**: Total documents, chunks, tokens, distribution by type
@@ -299,6 +310,7 @@ Understanding latency helps with troubleshooting:
 | Operation | First Call (Cold) | Subsequent Calls (Warm) |
 |-----------|-------------------|------------------------|
 | rag_ingest_document | ~10-12 seconds | ~500ms |
+| rag_ingest_file | ~10-12 seconds (first) | ~1-10s (depends on file size) |
 | rag_search | ~12 seconds | ~4-50ms |
 | rag_list_documents | <100ms | <50ms |
 | rag_get_document | <100ms | <50ms |
@@ -363,12 +375,22 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose run --rm hermes python -m scripts.
 
 ### Ingest Documents
 
+**Via MCP tool** (recomendado, com SSH tunnel ativo):
+
+Após transferir arquivos via SCP para `~/docs/` na VM, usar a tool `rag_ingest_file`:
+```text
+rag_ingest_file(path="/data/document.pdf", title="Document Title", doc_type="legislacao")
+rag_ingest_file(path="/data/", doc_type="legislacao")  # diretório inteiro
+```
+
+**Via SSH + script CLI** (alternativa):
+
 ```bash
 # Single file
 ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.ingest_file /data/document.txt --title 'Document Title' --type legislacao"
 
 # Directory
-ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.ingest_file /docs/ --type legislacao"
+ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.ingest_file /data/ --type legislacao"
 ```
 
 ## Troubleshooting
@@ -474,7 +496,7 @@ http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&se
 ### What to Test with Inspector
 
 Use the Inspector to:
-- View all 6 available tools
+- View all 7 available tools
 - Call `rag_get_stats` to verify database state
 - Test `rag_search` with real queries
 - Verify `rag_ingest_document` responses
