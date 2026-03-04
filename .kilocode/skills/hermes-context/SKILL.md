@@ -7,9 +7,23 @@ description: Deploy, manage, and ingest documents into the HermesContext MCP Ser
 
 Deploy, manage, and ingest documents into the HermesContext MCP Server on Oracle Cloud Always Free infrastructure.
 
+## Detecção de Ambiente
+
+Antes de executar qualquer comando, determine se está rodando **localmente na VM** ou **remotamente** (via SSH):
+
+```bash
+# Se o diretório ~/HermesContext existe, estamos na VM
+test -d ~/HermesContext && echo "LOCAL" || echo "REMOTO"
+```
+
+- **Local (na VM)**: Execute os comandos diretamente. Não é necessário SSH, túnel ou SCP.
+- **Remoto (via SSH)**: Use os comandos envolvidos em `ssh -i $SSH_KEY ubuntu@$VM_IP "..."`.
+
 ## Configuration
 
-Before using this skill, set the following variables:
+### Remoto (via SSH)
+
+Defina as variáveis de ambiente:
 
 ```bash
 export VM_IP="147.15.91.57"       # Oracle Cloud VM IP
@@ -17,6 +31,10 @@ export SSH_KEY="~/.ssh/id_ed25519" # SSH key path
 ```
 
 > **Tip**: Add to shell profile: `echo 'export VM_IP="147.15.91.57"' >> ~/.bashrc`
+
+### Local (na VM)
+
+Nenhuma variável adicional é necessária. O projeto está em `~/HermesContext`.
 
 ## Overview
 
@@ -129,25 +147,43 @@ Before using this skill, ensure:
 - SSH key pair generated (`ssh-keygen -t ed25519`)
 - Wallet file downloaded from Oracle Autonomous Database
 - GitHub repository access configured
-- VM_IP environment variable set
+- **Remoto**: VM_IP environment variable set
+- **Local**: Acesso direto à VM (SSH session ou Claude Code na VM)
 
 ## Deployment Steps
 
 ### Step 1: Verify Remote Server Connectivity
 
-Test SSH connection to the remote server:
+**Local (na VM):**
+```bash
+uname -a
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "uname -a"
 ```
 
 ### Step 2: Pull Latest Code
 
-On the remote server, navigate to the project directory and pull the latest changes:
+**Local (na VM):**
+```bash
+cd ~/HermesContext && git pull
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && git pull"
 ```
 
 If the repository has not been cloned yet:
+
+**Local (na VM):**
+```bash
+git clone git@github.com:brunoleos/HermesContext.git ~/HermesContext
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "git clone git@github.com:brunoleos/HermesContext.git ~/HermesContext"
 ```
@@ -155,6 +191,13 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "git clone git@github.com:brunoleos/HermesContext.
 ### Step 3: Configure Environment
 
 Ensure the `.env` file exists with required configuration:
+
+**Local (na VM):**
+```bash
+ls ~/HermesContext/.env
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "ls ~/HermesContext/.env"
 ```
@@ -173,7 +216,12 @@ Required environment variables:
 
 ### Step 4: Verify Wallet Configuration
 
-Ensure the Oracle wallet is properly configured:
+**Local (na VM):**
+```bash
+ls -la ~/wallet/ && cat ~/wallet/sqlnet.ora
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "ls -la ~/wallet/ && cat ~/wallet/sqlnet.ora"
 ```
@@ -185,7 +233,12 @@ WALLET_LOCATION = (SOURCE = (METHOD = file) (METHOD_DATA = (DIRECTORY="/home/ubu
 
 ### Step 5: Build Docker Image
 
-Build the Hermes container:
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose build hermes
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose build hermes"
 ```
@@ -194,12 +247,24 @@ Expected build time: 10-20 minutes on first run (includes downloading ML models)
 
 ### Step 6: Start Services
 
-Start all services including Redis and Hermes:
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose up -d
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose up -d"
 ```
 
 Verify containers are running:
+
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose ps
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose ps"
 ```
@@ -207,6 +272,13 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose ps"
 ### Step 7: Verify Deployment
 
 Check container logs for successful startup:
+
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose logs --tail 20 hermes
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs --tail 20 hermes"
 ```
@@ -218,16 +290,21 @@ INFO: Uvicorn running on http://0.0.0.0:9090
 
 ### Step 8: Test MCP Endpoint
 
-Test the MCP server is responding:
+**Local (na VM):**
+```bash
+curl -s -X POST http://localhost:9090/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "curl -s -X POST http://localhost:9090/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}'"
 ```
 
 A successful response contains `serverInfo` and `capabilities`.
 
-### Step 9: Open SSH Tunnel (Automatic)
+### Step 9: Open SSH Tunnel
 
-The MCP server is not directly accessible via public IP (returns `421 Invalid Host header`). After successful deployment, **automatically** open an SSH tunnel to access it locally.
+> **Apenas remoto** — esta etapa não é necessária quando executando localmente na VM. O MCP server já está acessível em `http://localhost:9090/mcp`.
 
 **Windows (execute via PowerShell):**
 ```powershell
@@ -247,11 +324,15 @@ Once active, the MCP server is available at `http://localhost:9090/mcp`.
 
 ## Document Ingestion
 
-Workflow to index new documents into the RAG knowledge base. Requires an active SSH tunnel on port 9090.
+Workflow to index new documents into the RAG knowledge base.
 
-### Prerequisite: Verify SSH Tunnel
+### Prerequisite: Verify MCP Access
 
-Confirm the tunnel is active before using MCP tools:
+**Local (na VM):**
+O MCP server está acessível diretamente em `http://localhost:9090/mcp`. Nenhum túnel necessário.
+
+**Remoto (via SSH):**
+Confirme que o túnel SSH está ativo na porta 9090:
 
 ```bash
 # Windows
@@ -265,7 +346,19 @@ If not active, open the tunnel (see Step 9 above).
 
 ### Step 1: Transfer File to VM
 
-Use SCP to upload the local file to `~/docs/` on the VM (mapped to `/data/` in the container):
+**Local (na VM):**
+Copie o arquivo diretamente para `~/docs/` (mapeado para `/data/` no container):
+
+```bash
+# Arquivo já está na VM — copiar para ~/docs/
+cp /caminho/local/documento.pdf ~/docs/
+
+# Verificar
+ls -la ~/docs/
+```
+
+**Remoto (via SSH):**
+Use SCP to upload the local file to `~/docs/` on the VM:
 
 ```bash
 # Single file
@@ -285,7 +378,7 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "ls -la ~/docs/"
 
 ### Step 2: Ingest via MCP tool `rag_ingest_file`
 
-With the tunnel active and the file on the VM, call the MCP tool:
+With the MCP server accessible and the file in `~/docs/`, call the MCP tool:
 
 **Single file:**
 ```
@@ -332,10 +425,18 @@ Completed response:
 
 Confirm ingestion with `rag_list_documents` or `rag_get_stats`.
 
-### Alternative: Ingest via CLI (no tunnel)
+### Alternative: Ingest via CLI (no MCP tool)
 
-When the tunnel is not available, use the script directly via SSH:
+**Local (na VM):**
+```bash
+# Single file
+cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/document.pdf --title 'Title' --type legislation
 
+# Entire directory
+cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/ --type legislation
+```
+
+**Remoto (via SSH):**
 ```bash
 # Single file
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/document.pdf --title 'Title' --type legislation"
@@ -349,6 +450,13 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes 
 Run comprehensive tests for all MCP tools using the existing test scripts:
 
 ### Full Pipeline Smoke Test (Recommended)
+
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose exec hermes python -m scripts.smoke_test
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.smoke_test"
 ```
@@ -357,6 +465,31 @@ This test: ingests a test document → tests embedding → tests vector search �
 
 ### Individual Tests
 
+**Local (na VM):**
+```bash
+# Stats
+cd ~/HermesContext && docker compose exec hermes python -m scripts.test_stats
+
+# Get stats (detailed)
+cd ~/HermesContext && docker compose exec hermes python -m scripts.test_get_stats
+
+# Ingest document
+cd ~/HermesContext && docker compose exec hermes python -m scripts.test_ingest_document
+
+# Search
+cd ~/HermesContext && docker compose exec hermes python -m scripts.test_search
+
+# List documents
+cd ~/HermesContext && docker compose exec hermes python -m scripts.test_list_documents
+
+# Get document
+cd ~/HermesContext && docker compose exec hermes python -m scripts.test_get_document
+
+# Inspect MCP tool schemas
+cd ~/HermesContext && docker compose exec hermes python -m scripts.check_tools
+```
+
+**Remoto (via SSH):**
 ```bash
 # Stats
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.test_stats"
@@ -399,6 +532,13 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes 
 
 ### View Logs
 
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose logs --tail 100 hermes
+cd ~/HermesContext && docker compose logs -f hermes
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs --tail 100 hermes"
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs -f hermes"
@@ -406,6 +546,16 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs -f herm
 
 ### Restart Services
 
+**Local (na VM):**
+```bash
+# Restart only Hermes
+cd ~/HermesContext && docker compose restart hermes
+
+# Full rebuild and restart
+cd ~/HermesContext && docker compose build hermes && docker compose up -d hermes
+```
+
+**Remoto (via SSH):**
 ```bash
 # Restart only Hermes
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose restart hermes"
@@ -416,6 +566,17 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose build hermes
 
 ### Health Check
 
+**Local (na VM):**
+```bash
+# Automated health check (MCP, Redis, containers, disk, RAM)
+cd ~/HermesContext && bash scripts/health_check.sh
+
+# Manual checks
+cd ~/HermesContext && docker stats --no-stream
+free -h && df -h /
+```
+
+**Remoto (via SSH):**
 ```bash
 # Automated health check (MCP, Redis, containers, disk, RAM)
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && bash scripts/health_check.sh"
@@ -427,6 +588,19 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "free -h && df -h /"
 
 ### Database Operations
 
+**Local (na VM):**
+```bash
+# Test database connection
+cd ~/HermesContext && docker compose run --rm hermes python -m scripts.test_connection
+
+# Initialize/update schema
+cd ~/HermesContext && docker compose run --rm hermes python -m scripts.init_db
+
+# Warm up ML models
+cd ~/HermesContext && docker compose run --rm hermes python -m scripts.warmup_models
+```
+
+**Remoto (via SSH):**
 ```bash
 # Test database connection
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose run --rm hermes python -m scripts.test_connection"
@@ -443,6 +617,13 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose run --rm her
 ### Connection Issues
 
 If the MCP endpoint is not accessible:
+
+**Local (na VM):**
+1. Verify container is running: `cd ~/HermesContext && docker compose ps`
+2. Check container logs: `cd ~/HermesContext && docker compose logs hermes | grep 9090`
+3. Test endpoint: `curl -s http://localhost:9090/mcp` (should not return connection refused)
+
+**Remoto (via SSH):**
 1. Check SSH tunnel is active: `netstat -ano | findstr :9090` (Windows) or `ss -tlnp | grep 9090` (Linux)
 2. Verify container is running: `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose ps"`
 3. Check container logs: `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs hermes | grep 9090"`
@@ -450,6 +631,14 @@ If the MCP endpoint is not accessible:
 ### Database Connection
 
 If Oracle connection fails:
+
+**Local (na VM):**
+1. Verify wallet is in correct location: `ls -la ~/wallet/`
+2. Check DSN in .env is correct
+3. Ensure Autonomous Database is running (not stopped in Oracle Console)
+4. Test connection: `cd ~/HermesContext && docker compose run --rm hermes python -m scripts.test_connection`
+
+**Remoto (via SSH):**
 1. Verify wallet is in correct location: `ssh -i $SSH_KEY ubuntu@$VM_IP "ls -la ~/wallet/"`
 2. Check DSN in .env is correct
 3. Ensure Autonomous Database is running (not stopped in Oracle Console)
@@ -458,12 +647,25 @@ If Oracle connection fails:
 ### Performance Issues
 
 If embedding is slow (>500ms on warm calls):
+
+**Local (na VM):**
+- Check CPU usage: `docker stats --no-stream hermes`
+
+**Remoto (via SSH):**
 - Check CPU usage: `ssh -i $SSH_KEY ubuntu@$VM_IP "docker stats --no-stream hermes"`
-- First call cold start is expected (~10-12s)
+
+First call cold start is expected (~10-12s).
 
 ### Model Download Issues
 
 If models fail to download during build:
+
+**Local (na VM):**
+```bash
+cd ~/HermesContext && docker compose run --rm hermes python -m scripts.warmup_models
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose run --rm hermes python -m scripts.warmup_models"
 ```
@@ -471,6 +673,14 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose run --rm her
 ### MCP Tools Not Working
 
 If a specific MCP tool fails:
+
+**Local (na VM):**
+1. Check logs: `cd ~/HermesContext && docker compose logs hermes | grep -A 10 'error'`
+2. Run individual tool test from the smoke tests above
+3. Verify database connectivity
+4. Check if models are loaded: `cd ~/HermesContext && docker compose logs hermes | grep 'Modelos'`
+
+**Remoto (via SSH):**
 1. Check logs: `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose logs hermes | grep -A 10 'error'"`
 2. Run individual tool test from the smoke tests above
 3. Verify database connectivity
@@ -482,7 +692,12 @@ The MCP Inspector is a web-based interface for interactively testing MCP tools.
 
 ### Automated Script (Recommended)
 
-Run the automated script from the local machine:
+**Local (na VM):**
+```bash
+cd ~/HermesContext && bash scripts/mcp-inspector.sh
+```
+
+**Remoto:**
 ```bash
 bash scripts/mcp-inspector.sh
 ```
@@ -503,16 +718,33 @@ http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&se
 ### Manual Setup
 
 **Step 1: Start Inspector on VM**
+
+**Local (na VM):**
+```bash
+pkill -9 node 2>/dev/null; nohup npx @modelcontextprotocol/inspector http://localhost:9090/mcp > /tmp/inspector.log 2>&1 < /dev/null &
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "pkill -9 node 2>/dev/null; nohup npx @modelcontextprotocol/inspector http://localhost:9090/mcp > /tmp/inspector.log 2>&1 < /dev/null &"
 ```
 
 **Step 2: Get Auth Token**
+
+**Local (na VM):**
+```bash
+sleep 5 && cat /tmp/inspector.log | grep MCP_PROXY_AUTH_TOKEN
+```
+
+**Remoto (via SSH):**
 ```bash
 ssh -i $SSH_KEY ubuntu@$VM_IP "sleep 5 && cat /tmp/inspector.log | grep MCP_PROXY_AUTH_TOKEN"
 ```
 
 **Step 3: Open SSH Tunnel**
+
+> **Apenas remoto** — quando local, o Inspector já está acessível diretamente.
+
 ```bash
 ssh -i $SSH_KEY -L 6274:localhost:6274 -L 6277:localhost:6277 -N ubuntu@$VM_IP
 ```
@@ -520,9 +752,11 @@ ssh -i $SSH_KEY -L 6274:localhost:6274 -L 6277:localhost:6277 -N ubuntu@$VM_IP
 **Step 4: Open Browser**
 Navigate to `http://localhost:6274/?MCP_PROXY_AUTH_TOKEN=<token>&transport=streamable-http&serverUrl=http://localhost:9090/mcp`
 
-> **Important**: The Inspector also requires the port 9090 tunnel to be active for MCP tools to work. Open it separately if not already running.
+> **Important**: The Inspector also requires the port 9090 tunnel to be active for MCP tools to work. Open it separately if not already running (only for remote access).
 
 ## SSH Tunnel Management
+
+> **Apenas remoto** — esta seção não se aplica quando executando localmente na VM.
 
 ### Start Tunnel
 
@@ -560,6 +794,24 @@ taskkill /F /IM ssh.exe
 
 ## Quick Reference
 
+### Local (na VM)
+
+| Task | Command |
+|------|---------|
+| Deploy | `cd ~/HermesContext && git pull && docker compose build hermes && docker compose up -d` |
+| Check status | `cd ~/HermesContext && docker compose ps` |
+| View logs | `cd ~/HermesContext && docker compose logs --tail 20 hermes` |
+| Restart | `cd ~/HermesContext && docker compose restart hermes` |
+| Health check | `cd ~/HermesContext && bash scripts/health_check.sh` |
+| Smoke test | `cd ~/HermesContext && docker compose exec hermes python -m scripts.smoke_test` |
+| Copy file to ingest | `cp /caminho/arquivo.pdf ~/docs/` |
+| Ingest file (MCP) | `rag_ingest_file(path="/data/file.pdf", doc_type="legislation")` |
+| Ingest file (CLI) | `cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/file.pdf --title 'Title' --type legislation` |
+| Check ingest status | `rag_get_ingest_status(job_id="<job_id>")` |
+| MCP Inspector | `cd ~/HermesContext && bash scripts/mcp-inspector.sh` |
+
+### Remoto (via SSH)
+
 | Task | Command |
 |------|---------|
 | Deploy | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && git pull && docker compose build hermes && docker compose up -d"` |
@@ -570,11 +822,13 @@ taskkill /F /IM ssh.exe
 | Smoke test | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.smoke_test"` |
 | SCP upload | `scp -i $SSH_KEY /local/file.pdf ubuntu@$VM_IP:~/docs/` |
 | Ingest file (MCP) | `rag_ingest_file(path="/data/file.pdf", doc_type="legislation")` |
+| Ingest file (CLI) | `ssh -i $SSH_KEY ubuntu@$VM_IP "cd ~/HermesContext && docker compose exec hermes python -m scripts.ingest_file /data/file.pdf --title 'Title' --type legislation"` |
 | Check ingest status | `rag_get_ingest_status(job_id="<job_id>")` |
 | MCP Inspector | `bash scripts/mcp-inspector.sh` |
+| Tunnel start (Linux) | `ssh -i $SSH_KEY -L 9090:localhost:9090 -f -N ubuntu@$VM_IP` |
 | Tunnel start (Windows) | `Start-Process -FilePath "ssh" -ArgumentList "-i $env:USERPROFILE\.ssh\id_ed25519 -L 9090:localhost:9090 -N ubuntu@147.15.91.57" -WindowStyle Hidden` |
-| Tunnel status | `netstat -ano \| findstr :9090` (Windows) / `ss -tlnp \| grep 9090` (Linux) |
-| Tunnel stop | `taskkill /F /IM ssh.exe` (Windows) / `pkill -f "ssh.*-L 9090"` (Linux) |
+| Tunnel status | `ss -tlnp \| grep 9090` (Linux) / `netstat -ano \| findstr :9090` (Windows) |
+| Tunnel stop | `pkill -f "ssh.*-L 9090"` (Linux) / `taskkill /F /IM ssh.exe` (Windows) |
 
 ## Additional Resources
 
