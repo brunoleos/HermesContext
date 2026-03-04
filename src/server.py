@@ -22,7 +22,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field
 
 from .config import settings
 from .database import Database
@@ -158,163 +158,6 @@ def _read_file_from_disk(path: str) -> str:
 
 
 # ════════════════════════════════════════════════════
-# Tool Input Models (Pydantic v2)
-# ════════════════════════════════════════════════════
-
-class SearchInput(BaseModel):
-    """Semantic search parameters in the RAG."""
-
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    query: str = Field(
-        ...,
-        description=(
-            "Natural language query or question. "
-            "Examples: 'What is the procedure for prisoner transfer?', "
-            "'requirements for regime progression'"
-        ),
-        min_length=2,
-        max_length=2000,
-    )
-    top_k: int = Field(
-        default=5,
-        description="Number of results to return (1-20)",
-        ge=1,
-        le=20,
-    )
-    use_reranker: bool = Field(
-        default=True,
-        description="Apply cross-encoder reranking to improve precision",
-    )
-    response_format: ResponseFormat = Field(
-        default=ResponseFormat.MARKDOWN,
-        description="Output format: 'markdown' (readable) or 'json' (structured)",
-    )
-
-
-class IngestInput(BaseModel):
-    """Parameters for document ingestion."""
-
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    title: str = Field(
-        ...,
-        description="Document title (e.g., 'Resolution SAP 123/2025')",
-        min_length=1,
-        max_length=500,
-    )
-    content: str = Field(
-        ...,
-        description="Full text of the document to be indexed",
-        min_length=10,
-    )
-    source: Optional[str] = Field(
-        default=None,
-        description="Document source (e.g., 'SAP/SC', 'DEPEN', URL)",
-        max_length=1000,
-    )
-    doc_type: Optional[str] = Field(
-        default=None,
-        description=(
-            "Document type for filtering "
-            "(e.g., 'resolution', 'ordinance', 'manual', 'legislation')"
-        ),
-        max_length=100,
-    )
-    metadata: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Additional metadata as key-value pairs",
-    )
-
-
-class IngestFileInput(BaseModel):
-    """Parameters for file ingestion already on the VM."""
-
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    path: str = Field(
-        ...,
-        description="Path to file or directory in /data/ (e.g., '/data/doc.pdf' or '/data/')",
-        min_length=1,
-    )
-    title: Optional[str] = Field(
-        default=None,
-        description="Document title (default: filename). Ignored if path is a directory.",
-        max_length=500,
-    )
-    doc_type: Optional[str] = Field(
-        default=None,
-        description=(
-            "Document type for filtering "
-            "(e.g., 'resolution', 'ordinance', 'manual', 'legislation')"
-        ),
-        max_length=100,
-    )
-
-
-class ListDocumentsInput(BaseModel):
-    """Parameters for document listing."""
-
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    limit: int = Field(
-        default=20,
-        description="Maximum number of results (1-100)",
-        ge=1,
-        le=100,
-    )
-    offset: int = Field(
-        default=0,
-        description="Offset for pagination",
-        ge=0,
-    )
-    doc_type: Optional[str] = Field(
-        default=None,
-        description="Filter by document type",
-        max_length=100,
-    )
-    response_format: ResponseFormat = Field(
-        default=ResponseFormat.MARKDOWN,
-        description="Output format: 'markdown' or 'json'",
-    )
-
-
-class GetDocumentInput(BaseModel):
-    """Parameters to fetch document by ID."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    document_id: int = Field(
-        ..., description="Numeric document ID", ge=1
-    )
-    response_format: ResponseFormat = Field(
-        default=ResponseFormat.MARKDOWN,
-        description="Output format: 'markdown' or 'json'",
-    )
-
-
-class DeleteDocumentInput(BaseModel):
-    """Parameters to delete a document."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    document_id: int = Field(
-        ..., description="Numeric ID of the document to delete", ge=1
-    )
-
-
-class StatsInput(BaseModel):
-    """Parameters for statistics."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    response_format: ResponseFormat = Field(
-        default=ResponseFormat.MARKDOWN,
-        description="Output format: 'markdown' or 'json'",
-    )
-
-
-# ════════════════════════════════════════════════════
 # Tools
 # ════════════════════════════════════════════════════
 
@@ -328,7 +171,26 @@ class StatsInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def rag_search(params: SearchInput) -> str:
+async def rag_search(
+    query: str = Field(
+        ...,
+        description="Natural language query or question. Examples: 'What is the procedure for prisoner transfer?', 'requirements for regime progression'",
+    ),
+    top_k: int = Field(
+        default=5,
+        description="Number of results to return (1-20)",
+        ge=1,
+        le=20,
+    ),
+    use_reranker: bool = Field(
+        default=True,
+        description="Apply cross-encoder reranking to improve precision",
+    ),
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' (readable) or 'json' (structured)",
+    ),
+) -> str:
     """Search documents by semantic similarity using embedding + keyword hybrid search.
 
     Combines vector search (BGE-M3 dense embeddings) with keyword search,
@@ -338,25 +200,18 @@ async def rag_search(params: SearchInput) -> str:
     answer questions about regulations, laws, procedures, or any
     previously indexed content.
 
-    Args:
-        params (SearchInput): Search parameters containing:
-            - query (str): Natural language question
-            - top_k (int): Number of results (default: 5)
-            - use_reranker (bool): Use cross-encoder (default: True)
-            - response_format (str): 'markdown' or 'json'
-
     Returns:
         str: Formatted results with relevant excerpts, scores and metadata.
     """
     engine = _get_engine()
 
     results = engine.search(
-        query=params.query,
-        top_k=params.top_k,
-        use_reranker=params.use_reranker,
+        query=query,
+        top_k=top_k,
+        use_reranker=use_reranker,
     )
 
-    return _format_search_results(results, params.response_format)
+    return _format_search_results(results, response_format)
 
 
 @mcp.tool(
@@ -369,7 +224,33 @@ async def rag_search(params: SearchInput) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_ingest_document(params: IngestInput) -> str:
+async def rag_ingest_document(
+    title: str = Field(
+        ...,
+        description="Document title (e.g., 'Resolution SAP 123/2025')",
+        min_length=1,
+        max_length=500,
+    ),
+    content: str = Field(
+        ...,
+        description="Full text of the document to be indexed",
+        min_length=10,
+    ),
+    source: Optional[str] = Field(
+        default=None,
+        description="Document source (e.g., 'SAP/SC', 'DEPEN', URL)",
+        max_length=1000,
+    ),
+    doc_type: Optional[str] = Field(
+        default=None,
+        description="Document type for filtering (e.g., 'resolution', 'ordinance', 'manual', 'legislation')",
+        max_length=100,
+    ),
+    metadata: Optional[str] = Field(
+        default=None,
+        description="Additional metadata as JSON string with key-value pairs",
+    ),
+) -> str:
     """Index a new document in the RAG knowledge base.
 
     The document will be: chunked, enriched with context,
@@ -379,25 +260,24 @@ async def rag_ingest_document(params: IngestInput) -> str:
     Use this tool to add new documents (laws, resolutions,
     manuals, ordinances) to the knowledge base.
 
-    Args:
-        params (IngestInput): Document data containing:
-            - title (str): Document title
-            - content (str): Full text
-            - source (str, optional): Source
-            - doc_type (str, optional): Type for filtering
-            - metadata (dict, optional): Extra metadata
-
     Returns:
         str: Confirmation with document ID, chunk count and time.
     """
     engine = _get_engine()
 
+    meta_dict = None
+    if metadata:
+        try:
+            meta_dict = json.loads(metadata)
+        except json.JSONDecodeError:
+            return "❌ Error: metadata must be a valid JSON string"
+
     result = engine.ingest_document(
-        title=params.title,
-        content=params.content,
-        source=params.source,
-        doc_type=params.doc_type,
-        metadata=params.metadata,
+        title=title,
+        content=content,
+        source=source,
+        doc_type=doc_type,
+        metadata=meta_dict,
     )
 
     return (
@@ -419,7 +299,27 @@ async def rag_ingest_document(params: IngestInput) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_ingest_file(params: IngestFileInput) -> str:
+async def rag_ingest_file(
+    path: str = Field(
+        ...,
+        description="Path to file or directory in /data/ (e.g., '/data/doc.pdf' or '/data/')",
+        min_length=1,
+    ),
+    title: Optional[str] = Field(
+        default=None,
+        description="Document title (default: filename). Ignored if path is a directory.",
+        max_length=500,
+    ),
+    doc_type: Optional[str] = Field(
+        default=None,
+        description="Document type for filtering (e.g., 'resolution', 'ordinance', 'manual', 'legislation')",
+        max_length=100,
+    ),
+    metadata: Optional[str] = Field(
+        default=None,
+        description="Additional metadata as JSON string with key-value pairs",
+    ),
+) -> str:
     """Ingests an existing file on the VM (in /data/) into the RAG knowledge base.
 
     Supports individual files (.txt, .md, .csv, .json, .pdf) or entire directories.
@@ -428,19 +328,21 @@ async def rag_ingest_file(params: IngestFileInput) -> str:
     Use this tool after transferring files to the VM via SCP or mounting.
     The file must be in /data/ (volume mounted in the container).
 
-    Args:
-        params (IngestFileInput): Containing:
-            - path (str): Path in /data/ (e.g., /data/document.pdf or /data/)
-            - title (str, optional): Document title (default: filename)
-            - doc_type (str, optional): Type for filtering
-
     Returns:
         str: Summary of ingestion (N documents, total chunks, time)
     """
     # Validation: path must be in /data/
-    path = params.path.rstrip("/")
+    path = path.rstrip("/")
     if not path.startswith("/data"):
         return f"❌ Security error: path must be in /data/, received: {path}"
+
+    # Parse metadata JSON if provided
+    meta_dict = None
+    if metadata:
+        try:
+            meta_dict = json.loads(metadata)
+        except json.JSONDecodeError:
+            return "❌ Error: metadata must be a valid JSON string"
 
     engine = _get_engine()
     t_start = time.time()
@@ -452,13 +354,18 @@ async def rag_ingest_file(params: IngestFileInput) -> str:
             if not content.strip():
                 return f"❌ Empty file: {path}"
 
-            title = params.title or os.path.splitext(os.path.basename(path))[0]
+            file_title = title or os.path.splitext(os.path.basename(path))[0]
+            # Merge user metadata with auto-generated file metadata
+            file_metadata = dict(meta_dict) if meta_dict else {}
+            file_metadata["filename"] = os.path.basename(path)
+            file_metadata["size_chars"] = len(content)
+
             result = engine.ingest_document(
-                title=title,
+                title=file_title,
                 content=content,
                 source=path,
-                doc_type=params.doc_type,
-                metadata={"filename": os.path.basename(path), "size_chars": len(content)},
+                doc_type=doc_type,
+                metadata=file_metadata,
             )
             elapsed = time.time() - t_start
             return (
@@ -490,12 +397,17 @@ async def rag_ingest_file(params: IngestFileInput) -> str:
                     continue
 
                 title = os.path.splitext(os.path.basename(file_path))[0]
+                # Merge user metadata with auto-generated file metadata
+                file_metadata = dict(meta_dict) if meta_dict else {}
+                file_metadata["filename"] = os.path.basename(file_path)
+                file_metadata["size_chars"] = len(content)
+
                 result = engine.ingest_document(
                     title=title,
                     content=content,
                     source=file_path,
-                    doc_type=params.doc_type,
-                    metadata={"filename": os.path.basename(file_path), "size_chars": len(content)},
+                    doc_type=doc_type,
+                    metadata=file_metadata,
                 )
                 total_docs += 1
                 total_chunks += result["chunk_count"]
@@ -521,30 +433,44 @@ async def rag_ingest_file(params: IngestFileInput) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_list_documents(params: ListDocumentsInput) -> str:
+async def rag_list_documents(
+    limit: int = Field(
+        default=20,
+        description="Maximum number of results (1-100)",
+        ge=1,
+        le=100,
+    ),
+    offset: int = Field(
+        default=0,
+        description="Offset for pagination",
+        ge=0,
+    ),
+    doc_type: Optional[str] = Field(
+        default=None,
+        description="Filter by document type",
+        max_length=100,
+    ),
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' or 'json'",
+    ),
+) -> str:
     """Lists indexed documents in the knowledge base with pagination.
 
     Use to see which documents are available for searching,
     filter by type, or check the base status.
-
-    Args:
-        params (ListDocumentsInput): Filters containing:
-            - limit (int): Maximum results (default: 20)
-            - offset (int): Offset for pagination
-            - doc_type (str, optional): Filter by type
-            - response_format (str): 'markdown' or 'json'
 
     Returns:
         str: List of documents with ID, title, type and chunk count.
     """
     db = _get_db()
     data = db.list_documents(
-        limit=params.limit,
-        offset=params.offset,
-        doc_type=params.doc_type,
+        limit=limit,
+        offset=offset,
+        doc_type=doc_type,
     )
 
-    if params.response_format == ResponseFormat.JSON:
+    if response_format == ResponseFormat.JSON:
         return json.dumps(data, indent=2, ensure_ascii=False)
 
     lines = [f"## Documents ({data['total']} total)\n"]
@@ -556,8 +482,8 @@ async def rag_list_documents(params: ListDocumentsInput) -> str:
         )
 
     if data["has_more"]:
-        next_off = params.offset + params.limit
-        lines.append(f"\n*Mais resultados disponíveis (offset={next_off}).*")
+        next_off = offset + limit
+        lines.append(f"\n*More results available (offset={next_off}).*")
 
     return "\n".join(lines)
 
@@ -572,26 +498,31 @@ async def rag_list_documents(params: ListDocumentsInput) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_get_document(params: GetDocumentInput) -> str:
+async def rag_get_document(
+    document_id: int = Field(
+        ...,
+        description="Numeric document ID",
+        ge=1,
+    ),
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' or 'json'",
+    ),
+) -> str:
     """Gets details of a specific document by ID.
 
     Returns title, source, type, metadata and chunk count.
-
-    Args:
-        params (GetDocumentInput): Contains:
-            - document_id (int): Document ID
-            - response_format (str): 'markdown' or 'json'
 
     Returns:
         str: Document details or error message if not found.
     """
     db = _get_db()
-    doc = db.get_document(params.document_id)
+    doc = db.get_document(document_id)
 
     if not doc:
-        return f"❌ Document with ID {params.document_id} not found."
+        return f"❌ Document with ID {document_id} not found."
 
-    if params.response_format == ResponseFormat.JSON:
+    if response_format == ResponseFormat.JSON:
         return json.dumps(doc, indent=2, ensure_ascii=False)
 
     meta_str = ""
@@ -619,24 +550,26 @@ async def rag_get_document(params: GetDocumentInput) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_delete_document(params: DeleteDocumentInput) -> str:
+async def rag_delete_document(
+    document_id: int = Field(
+        ...,
+        description="Numeric ID of the document to delete",
+        ge=1,
+    ),
+) -> str:
     """Deletes a document and all its chunks from the knowledge base.
 
     ⚠️ Irreversible action. All associated chunks and embeddings will be removed.
-
-    Args:
-        params (DeleteDocumentInput): Contains:
-            - document_id (int): ID of the document to delete
 
     Returns:
         str: Deletion confirmation or error if not found.
     """
     db = _get_db()
-    deleted = db.delete_document(params.document_id)
+    deleted = db.delete_document(document_id)
 
     if deleted:
-        return f"✅ Document #{params.document_id} deleted successfully (including all chunks)."
-    return f"❌ Document #{params.document_id} not found."
+        return f"✅ Document #{document_id} deleted successfully (including all chunks)."
+    return f"❌ Document #{document_id} not found."
 
 
 @mcp.tool(
@@ -649,14 +582,15 @@ async def rag_delete_document(params: DeleteDocumentInput) -> str:
         "openWorldHint": False,
     },
 )
-async def rag_get_stats(params: StatsInput) -> str:
+async def rag_get_stats(
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' or 'json'",
+    ),
+) -> str:
     """Returns general statistics about the knowledge base.
 
     Includes: total documents, chunks, tokens and distribution by type.
-
-    Args:
-        params (StatsInput): Contains:
-            - response_format (str): 'markdown' or 'json'
 
     Returns:
         str: Formatted statistics of the RAG base.
@@ -664,7 +598,7 @@ async def rag_get_stats(params: StatsInput) -> str:
     db = _get_db()
     stats = db.get_stats()
 
-    if params.response_format == ResponseFormat.JSON:
+    if response_format == ResponseFormat.JSON:
         return json.dumps(stats, indent=2, ensure_ascii=False)
 
     by_type = "\n".join(
