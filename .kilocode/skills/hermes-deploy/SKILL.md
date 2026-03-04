@@ -211,6 +211,38 @@ ssh -i $SSH_KEY ubuntu@$VM_IP "curl -X POST http://localhost:9090/mcp -H 'Conten
 
 A successful response contains `serverInfo` and `capabilities`.
 
+### Step 9: Open SSH Tunnel (Automatic)
+
+The MCP server is not directly accessible via public IP (returns `421 Invalid Host header`). After successful deployment, **automatically** open an SSH tunnel to access it locally.
+
+**The skill will automatically execute the tunnel command.** If you need to open it manually:
+
+**On Linux/Mac:**
+```bash
+ssh -i $SSH_KEY -L 9090:localhost:9090 -N ubuntu@$VM_IP &
+```
+
+**On Windows (PowerShell):**
+```powershell
+Start-Process -FilePath "ssh" -ArgumentList "-i $env:USERPROFILE\.ssh\id_ed25519 -L 9090:localhost:9090 -N ubuntu@$VM_IP" -WindowStyle Hidden
+```
+
+> **Note**: Keep this terminal open or run in background. Each machine that needs access must open its own tunnel.
+
+---
+
+**After successful deployment completion, the skill will automatically execute:**
+
+**Linux/Mac:**
+```bash
+ssh -i $SSH_KEY -L 9090:localhost:9090 -f -N ubuntu@$VM_IP
+```
+
+**Windows:**
+```powershell
+Start-Process -FilePath "ssh" -ArgumentList "-i $env:USERPROFILE\.ssh\id_ed25519 -L 9090:localhost:9090 -N ubuntu@$VM_IP" -WindowStyle Hidden
+```
+
 ## Smoke Tests
 
 Run comprehensive tests for all MCP tools using the existing test scripts:
@@ -302,6 +334,76 @@ This comprehensive test:
 4. Tests hybrid search with reranking
 5. Verifies statistics
 6. Cleans up test data
+
+---
+
+## Automatic SSH Tunnel (Post-Deploy)
+
+After successful deployment completion, the skill **automatically** executes the SSH tunnel command:
+
+### Linux/Mac - Auto Open
+```bash
+ssh -i $SSH_KEY -L 9090:localhost:9090 -f -N ubuntu@$VM_IP
+```
+
+### Windows - Auto Open
+```powershell
+Start-Process -FilePath "ssh" -ArgumentList "-i $env:USERPROFILE\.ssh\id_ed25519 -L 9090:localhost:9090 -N ubuntu@$VM_IP" -WindowStyle Hidden
+```
+
+### Tunnel Status Verification
+
+After the tunnel is opened (automatically or manually), verify it's working:
+
+**Linux/Mac:**
+```bash
+# Check if port 9090 is listening
+ss -tlnp | grep 9090
+# or
+lsof -i :9090
+```
+
+**Windows:**
+```powershell
+netstat -ano | findstr :9090
+```
+
+**Remote server check:**
+```bash
+ssh -i $SSH_KEY ubuntu@$VM_IP "ss -tlnp | grep 9090"
+```
+
+If the tunnel is active, you should see output indicating port 9090 is listening.
+
+### Stop Tunnel Command
+
+If you need to stop the tunnel:
+
+**Linux/Mac:**
+```bash
+# Kill by process match
+pkill -f "ssh.*-L 9090"
+
+# Or kill specific PID
+pkill -f "ssh.*ubuntu@$VM_IP"
+```
+
+**Windows (PowerShell):**
+```powershell
+# Find and kill ssh process
+Get-Process -Name ssh | Stop-Process -Force
+
+# Or by port
+netstat -ano | findstr :9090
+taskkill /F /PID <PID>
+```
+
+**Windows (CMD):**
+```cmd
+taskkill /F /IM ssh.exe
+```
+
+---
 
 ## Performance Characteristics
 
@@ -514,20 +616,131 @@ Use the Inspector to:
 | Smoke test | `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.smoke_test"` |
 | Get stats | `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.test_stats"` |
 | MCP Inspector | `bash scripts/mcp-inspector.sh` |
+| **Tunnel (Auto)** | **Automatically opened after successful deploy** |
+| Tunnel status | `netstat -ano | findstr :9090` (Windows) / `ss -tlnp | grep 9090` (Linux) |
+| Tunnel stop | `taskkill /F /IM ssh.exe` (Windows) / `pkill -f "ssh.*-L 9090"` (Linux) |
 
-## SSH Tunnel (Required for MCP Access)
+## SSH Tunnel Management
 
 The MCP server is not directly accessible via the public IP (returns `421 Invalid Host header`). An SSH tunnel is required to access it from external machines.
 
-Before using any MCP tool or connecting any client, open a tunnel in a separate terminal:
+### Tunnel Commands
 
+#### Start Tunnel
+
+**Linux/Mac:**
 ```bash
-ssh -i $SSH_KEY -L 9090:localhost:9090 -N ubuntu@$VM_IP
+# In background (recommended)
+ssh -i $SSH_KEY -L 9090:localhost:9090 -N ubuntu@$VM_IP &
+
+# Or with nohup for persistence
+nohup ssh -i $SSH_KEY -L 9090:localhost:9090 -N ubuntu@$VM_IP > /dev/null 2>&1 &
 ```
 
-After this, the MCP server is available at `http://localhost:9090/mcp`.
+**Windows (PowerShell):**
+```powershell
+Start-Process -FilePath "ssh" -ArgumentList "-i $SSH_KEY -L 9090:localhost:9090 -N ubuntu@$VM_IP" -WindowStyle Hidden
+```
 
-> **Note**: Each machine that needs access must open its own tunnel. Multiple tunnels can coexist without conflicts — each client's requests are isolated.
+**Windows (CMD):**
+```cmd
+start /B ssh -i %SSH_KEY% -L 9090:localhost:9090 -N ubuntu@%VM_IP%
+```
+
+#### Check Tunnel Status
+
+**Local machine:**
+```bash
+# Linux/Mac
+ss -tlnp | grep 9090
+# or
+lsof -i :9090
+
+# Windows
+netstat -ano | findstr :9090
+```
+
+**Remote server:**
+```bash
+ssh -i $SSH_KEY ubuntu@$VM_IP "ss -tlnp | grep 9090"
+```
+
+#### Stop Tunnel
+
+**Linux/Mac:**
+```bash
+# Kill by process
+pkill -f "ssh.*-L 9090"
+
+# Or kill specific PID
+pkill -f "ssh.*ubuntu@$VM_IP"
+```
+
+**Windows:**
+```powershell
+# Find and kill ssh process
+Get-Process -Name ssh | Stop-Process -Force
+
+# Or by port
+netstat -ano | findstr :9090
+taskkill /F /PID <PID>
+```
+
+**CMD:**
+```cmd
+taskkill /F /IM ssh.exe
+```
+
+### Tunnel Automation Script
+
+Create a local script `tunnel.sh` for easier tunnel management:
+
+```bash
+#!/bin/bash
+
+VM_IP="${VM_IP:-147.15.91.57}"
+SSH_KEY="${SSH_KEY:-~/.ssh/id_ed25519}"
+
+case "$1" in
+  start)
+    echo "Starting SSH tunnel to $VM_IP..."
+    ssh -i "$SSH_KEY" -L 9090:localhost:9090 -N -f ubuntu@$VM_IP
+    echo "Tunnel started. MCP available at http://localhost:9090/mcp"
+    ;;
+  stop)
+    echo "Stopping SSH tunnel..."
+    pkill -f "ssh.*-L 9090"
+    echo "Tunnel stopped."
+    ;;
+  status)
+    if ss -tlnp 2>/dev/null | grep -q ':9090'; then
+      echo "Tunnel is ACTIVE - MCP available at http://localhost:9090/mcp"
+    else
+      echo "Tunnel is NOT active"
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|status}"
+    exit 1
+    ;;
+esac
+```
+
+Make it executable and use it:
+```bash
+chmod +x tunnel.sh
+./tunnel.sh start   # Start tunnel
+./tunnel.sh status  # Check status
+./tunnel.sh stop    # Stop tunnel
+```
+
+### Important Notes
+
+- **Keep terminal open**: The tunnel command (`-N`) doesn't open a shell, but the process must remain running
+- **Background execution**: Use `&` (Linux/Mac) or `Start-Process` (Windows) to run in background
+- **Multiple machines**: Each machine that needs access must open its own tunnel
+- **Port conflicts**: If port 9090 is in use locally, use a different local port: `-L 9091:localhost:9090`
+- **Reconnection**: If the tunnel drops, reconnect automatically with: `while true; do ssh -L 9090:localhost:9090 -N ubuntu@$VM_IP; sleep 5; done`
 
 ## Additional Resources
 
