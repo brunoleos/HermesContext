@@ -22,18 +22,32 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache
         "numpy>=1.26.0" \
         "PyMuPDF>=1.24.0"
 
-COPY src/ src/
-COPY scripts/ scripts/
-
-# Pré-download dos modelos durante build (cache no layer)
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')" \
-    && python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
-
 ENV PYTHONUNBUFFERED=1
 ENV MCP_TRANSPORT=streamable_http
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=9090
 
 EXPOSE 9090
+
+# ── Development stage ──────────────────────────────────────────────────────────
+FROM base AS development
+
+# watchdog para hot reload de arquivos Python
+RUN pip install --no-cache-dir watchdog
+
+# src/ e scripts/ são montados via volume no compose (não copiados aqui)
+CMD ["watchmedo", "auto-restart", \
+     "--patterns=*.py", "--recursive", "--", \
+     "python", "-m", "src.server"]
+
+# ── Production stage ───────────────────────────────────────────────────────────
+FROM base AS production
+
+COPY src/ src/
+COPY scripts/ scripts/
+
+# Pré-download dos modelos durante build (cache no layer)
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')" \
+    && python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
 CMD ["python", "-m", "src.server"]

@@ -72,9 +72,39 @@ git clone git@github.com:brunoleos/HermesContext.git
 cd HermesContext
 cp .env.example .env
 # Editar .env com credenciais Oracle
+```
 
+### 3. Build e Deploy
+
+O projeto suporta **dois modos de build**:
+
+#### Modo Produção (padrão)
+```bash
+# Build + deploy com pré-download de modelos
 docker compose up -d
 ```
+- Modelos ML (BGE-M3, MiniLM) são baixados durante o `docker build`
+- Código é copiado na imagem (não pode ser editado em tempo de execução)
+- Mais lento na primeira execução (~15-20 min)
+- Imagem maior (~2.5 GB com modelos)
+- Recomendado para produção
+
+#### Modo Desenvolvimento (hot reload)
+```bash
+# Build + deploy com hot reload de código
+docker compose -f docker-compose.dev.yml up -d
+```
+- Modelos ML são baixados na primeira execução do servidor (~5 min)
+- Código é montado como volume (edições refletem imediatamente)
+- Build mais rápido (~2 min)
+- Imagem menor (~400 MB)
+- Recomendado para desenvolvimento
+
+**Diferenças:** O `Dockerfile` agora usa **multi-stage build** com dois targets:
+- `production` (padrão): pré-baixa modelos, copia código
+- `development`: instala `watchdog`, usa volumes de código com hot reload
+
+### 4. Verificar
 
 ### 3. Verificar
 ```bash

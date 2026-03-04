@@ -2,35 +2,24 @@ services:
   hermes:
     build:
       context: .
-      target: production
-    command: python -m src.server
+      target: development
     env_file: .env
     volumes:
+      - ./src:/app/src
+      - ./scripts:/app/scripts
       - /home/ubuntu/wallet:/wallet:ro
       - /home/ubuntu/docs:/data:ro
       - models-cache:/root/.cache
-    deploy:
-      resources:
-        limits:
-          cpus: "3.0"
-          memory: 8G
     ports:
       - "9090:9090"
-    restart: unless-stopped
     depends_on:
       - redis
 
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 600M
     volumes:
       - redis-data:/data
-    restart: unless-stopped
 
 volumes:
   models-cache:

@@ -160,12 +160,19 @@ FETCH FIRST :top_k ROWS ONLY;
 
 ---
 
-## 5. Docker Compose
+## 5. Docker Compose & Multi-Stage Build
+
+O projeto oferece **dois modos de build** via multi-stage Dockerfile:
+
+### Modo Produção (padrão)
 
 ```yaml
+# docker-compose.yml (target: production)
 services:
   hermes:
-    build: .
+    build:
+      context: .
+      target: production
     command: python -m src.server
     env_file: .env
     volumes:
@@ -198,6 +205,51 @@ volumes:
   models-cache:
   redis-data:
 ```
+
+**Build de produção:**
+- `COPY src/ src/ + COPY scripts/ scripts/` → código na imagem
+- Pré-download dos modelos BGE-M3 (~1.5 GB) e MiniLM (~90 MB) no build
+- Imagem final: ~2.5 GB com tudo incluído
+- Duração: 15–20 min (primeira vez), 1 min (builds subsequentes)
+
+### Modo Desenvolvimento (hot reload)
+
+```yaml
+# docker-compose.dev.yml (target: development)
+services:
+  hermes:
+    build:
+      context: .
+      target: development
+    env_file: .env
+    volumes:
+      - ./src:/app/src              # ← código ao vivo (hot reload)
+      - ./scripts:/app/scripts      # ← scripts ao vivo
+      - /home/ubuntu/wallet:/wallet:ro
+      - /home/ubuntu/docs:/data:ro
+      - models-cache:/root/.cache
+    ports:
+      - "9090:9090"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+
+volumes:
+  models-cache:
+  redis-data:
+```
+
+**Build de desenvolvimento:**
+- Instala `watchdog` para hot reload automático de `src/` e `scripts/`
+- Modelos são baixados na **primeira execução** do servidor (~5 min)
+- Imagem final: ~400 MB (sem modelos)
+- Duração: ~2 min (build é rápido)
+- Uso: `docker compose -f docker-compose.dev.yml up -d`
 
 ---
 

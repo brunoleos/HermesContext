@@ -2,6 +2,13 @@
 
 O servidor MCP roda na VM Oracle (`147.15.91.57:9090`). Para acessá-lo localmente, é necessário um **SSH tunnel**.
 
+## Build: Produção vs Desenvolvimento
+
+O projeto oferece dois modos de build (ver [README.md](README.md)):
+
+- **Produção**: `docker compose up -d` (pré-baixa modelos, código em imagem)
+- **Desenvolvimento**: `docker compose -f docker-compose.dev.yml up -d` (hot reload, volumes de código)
+
 ## Pré-requisito: Abrir o SSH Tunnel
 
 Abra um terminal separado e mantenha o túnel ativo:

@@ -296,14 +296,43 @@ O `.env` já é carregado automaticamente via `env_file: .env`.
 
 ## Fase 3 — Build e Primeiro Boot
 
-### Passo 3.1 — Build das imagens Docker
+O projeto suporta **dois modos de build**:
+
+### Modo Produção (padrão — recomendado para deploy)
 
 ```bash
 cd ~/HermesContext
 docker compose build
 ```
 
-> ⏱️ Primeiro build leva **10–20 minutos** no ARM (compilação de dependências nativas + download dos modelos BGE-M3 e MiniLM). Builds subsequentes usam cache e são rápidos.
+> ⏱️ Primeiro build leva **15–20 minutos** no ARM:
+> - Compilação de dependências nativas
+> - Download dos modelos BGE-M3 (~1.5 GB) e MiniLM (~90 MB)
+> - Builds subsequentes usam cache e são rápidos (~1 min)
+
+### Modo Desenvolvimento (opcional — para iteração local)
+
+```bash
+cd ~/HermesContext
+docker compose -f docker-compose.dev.yml build
+```
+
+> ⏱️ Build muito mais rápido (~2 minutos):
+> - Modelos são baixados na **primeira execução** do servidor (não no build)
+> - Código é montado como volume (hot reload com `watchdog`)
+> - Ideal para desenvolvimento e debug
+
+**Diferença técnica**: O `Dockerfile` agora usa multi-stage build:
+- **`production`** (padrão): `COPY src/ + COPY scripts/ + pré-download de modelos`
+- **`development`**: instala `watchdog`, monta código via volume
+
+### Passo 3.1 — Build das imagens Docker
+
+**Para produção:**
+```bash
+cd ~/HermesContext
+docker compose build
+```
 
 > ⚠️ **Warnings normais durante o build** (podem ser ignorados):
 > - `position_ids UNEXPECTED` — chave extra no checkpoint do reranker, sem impacto
@@ -807,6 +836,7 @@ docker compose restart hermes
 
 ### Atualizar código
 
+**Em Produção:**
 ```bash
 cd ~/HermesContext
 git pull
@@ -814,17 +844,16 @@ docker compose build hermes
 docker compose up -d hermes
 ```
 
-> ⚠️ **Rebuild é obrigatório** após mudanças no código. O `Dockerfile` usa `COPY src/ src/` e `COPY scripts/ scripts/`, então os arquivos são copiados no build, não montados em tempo de execução.
+> ⚠️ **Rebuild é obrigatório** em produção. O `docker-compose.yml` usa `target: production` que copia os arquivos no build (`COPY src/ src/` + `COPY scripts/ scripts/`).
 
-> 💡 **Dica para desenvolvimento**: para evitar rebuild a cada mudança, adicione volumes temporários no `docker-compose.yml`:
-> ```yaml
-> volumes:
->   - /home/ubuntu/wallet:/wallet:ro
->   - models-cache:/root/.cache
->   - ./src:/app/src        # código ao vivo
->   - ./scripts:/app/scripts # scripts ao vivo
-> ```
-> Remova essas linhas e faça um build final quando estabilizar.
+**Em Desenvolvimento:**
+```bash
+cd ~/HermesContext
+git pull
+docker compose -f docker-compose.dev.yml restart hermes
+```
+
+> ✅ **Não precisa rebuild**: o `docker-compose.dev.yml` monta `./src:/app/src` e `./scripts:/app/scripts` como volumes. As mudanças são refletidas imediatamente com hot reload via `watchdog`.
 
 ### Re-rodar schema (após mudanças)
 
