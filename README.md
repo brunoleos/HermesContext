@@ -105,8 +105,6 @@ docker compose -f docker-compose.dev.yml up -d
 - `development`: instala `watchdog`, usa volumes de código com hot reload
 
 ### 4. Verificar
-
-### 3. Verificar
 ```bash
 # Logs (na VM)
 docker compose logs -f hermes
@@ -254,32 +252,69 @@ rag_get_stats()
 > O volume `/data` dentro do container mapeia para `~/docs` na VM. A tool `rag_ingest_file`
 > lê arquivos diretamente do `/data/` e os indexa. Formatos suportados: `.txt`, `.md`, `.csv`, `.json`, `.pdf`.
 
+### Workflow C: Uso Local via CLI
+
+Para acessar RAG localmente sem MCP Server (desenvolvimento ou scripts):
+
+```bash
+# Instalação (uma vez)
+pip install -e ".[dev]"
+
+# Comandos disponíveis
+hermes-cli search "query" [-k 5] [--no-rerank] [--json]
+hermes-cli ingest -t "Title" -c "content" [--json]
+hermes-cli ingest -t "Title" --stdin < file.txt
+hermes-cli ingest-file ~/docs/documento.pdf
+hermes-cli list [--limit 20] [--offset 0]
+hermes-cli get <doc-id>
+hermes-cli delete <doc-id> [--yes]
+hermes-cli stats [--json]
+
+# Exemplos
+hermes-cli search "requisitos progressão de regime" -k 3
+hermes-cli ingest-file ~/docs/lei_execucao_penal.pdf
+hermes-cli list | grep "resolução"
+```
+
+**Pré-requisito**: DB (Oracle/Redis) deve estar acessível. O CLI roda localmente, sem restrições de path.
+
 ## Arquitetura
 
 ```
-LLM (Claude/GPT/Gemini)
-        │ MCP Protocol (HTTP)
-        │ http://<vm-ip>:9090/mcp
-        ▼
-┌──────────────────────┐
-│   MCP Server (hermes_mcp)│
-│   :9090/mcp          │
-│ ┌──────┐ ┌────────┐ │
-│ │BGE-M3│ │Reranker│ │     ┌──────────────┐
-│ │Embed │ │MiniLM  │ │     │   Redis       │
-│ └──┬───┘ └───┬────┘ │     │ Cache + Queue │
-│    │         │      │     └──────────────┘
-│ ┌──▼─────────▼────┐ │
-│ │ Hybrid Retrieval │ │
-│ │ Dense+Keyword+RRF│ │
-│ └────────┬────────┘ │
-└──────────┼──────────┘
-           │
-  ┌────────▼──────────┐
-  │ Oracle Autonomous  │
-  │ AI Database        │
-  │ (Vector + Text)    │
-  └───────────────────┘
+LLM (Claude/GPT/Gemini)          CLI (Local)
+        │ MCP Protocol (HTTP)    │
+        │ http://<vm-ip>:9090/mcp│
+        ▼                         ▼
+┌──────────────────────────────────────┐
+│ Interface Layer                      │
+│ ┌─────────────────┐ ┌────────────┐ │
+│ │ MCP Server      │ │ CLI        │ │
+│ │ (hermes_mcp)    │ │ (hermes_cli)│ │
+│ └────────┬────────┘ └───────┬────┘ │
+│          │                  │      │
+│ ┌────────▼──────────────────▼────┐ │
+│ │ Core Layer (business logic)    │ │
+│ │ ┌──────┐ ┌────────┐ ┌────────┐ │ │
+│ │ │BGE-M3│ │Reranker│ │Engine  │ │ │
+│ │ │Embed │ │MiniLM  │ │Chunking│ │ │
+│ │ └──┬───┘ └───┬────┘ └───┬────┘ │ │
+│ │    │         │          │      │ │
+│ │ ┌──▼─────────▼──────────▼────┐ │ │
+│ │ │ Hybrid Retrieval           │ │ │
+│ │ │ Dense+Keyword+RRF+Rerank  │ │ │
+│ │ └──────┬─────────────────────┘ │ │
+│ │        │                        │ │
+│ │ ┌──────▼────────────────────┐ │ │
+│ │ │ Database & Cache Layer    │ │ │
+│ │ │ (Oracle + Redis)          │ │ │
+│ │ └──────┬────────────────────┘ │ │
+└────────┼────────────────────────┘
+         │
+  ┌──────▼──────────┐
+  │ Oracle Autonomous│
+  │ AI Database     │
+  │ (Vector + Text) │
+  └─────────────────┘
 ```
 
 ## Custos

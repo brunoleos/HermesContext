@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache
         "sentence-transformers>=3.0.0" \
         "oracledb>=2.0.0" \
         "redis>=5.0.0" \
-        "celery[redis]>=5.4.0" \
         "httpx>=0.27.0" \
         "uvicorn>=0.30.0" \
         "numpy>=1.26.0" \

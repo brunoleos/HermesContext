@@ -52,13 +52,12 @@ BGE-M3 é a escolha correta porque:
 │  OS + Docker           2.0 GB                            │
 │  BGE-M3 (PyTorch CPU)  1.5 GB  ← embedding              │
 │  Reranker (MiniLM)     0.5 GB  ← cross-encoder          │
-│  RAG API (FastAPI)     2.0 GB  ← app + MCP server       │
-│  Ingest Worker         4.0 GB  ← Unstructured + Celery   │
-│  Redis                 0.6 GB  ← cache + queue           │
-│  Prometheus+Grafana    0.5 GB  ← monitoramento           │
+│  RAG Core + Interfaces 1.5 GB  ← MCP server + CLI       │
+│  Redis                 0.6 GB  ← cache                   │
+│  Buffer/Overhead       3.0 GB  ← headroom               │
 │  ─────────────────────────────────────                   │
-│  TOTAL USADO          11.1 GB                            │
-│  BUFFER LIVRE         12.9 GB  (54% livre)               │
+│  TOTAL USADO           9.1 GB                            │
+│  BUFFER LIVRE         14.9 GB  (62% livre)               │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -66,46 +65,65 @@ BGE-M3 é a escolha correta porque:
 
 ## 3. Arquitetura Completa
 
+### Camadas (SOLID dependency inversion)
+
 ```
-                         ┌─────────────────────────┐
-                         │   LLM Generativa (ext.)  │
-                         │  Claude / Gemini / etc.  │
-                         └────────────┬────────────┘
-                                      │ MCP Protocol (HTTP)
-                                      │ http://<vm-ip>:9090/mcp
-                         ┌────────────▼────────────┐
-                         │     MCP SERVER (Python)   │
-                         │     hermes_mcp  :9090        │
-                         │                           │
-                         │  Tools expostos:           │
-                         │  • rag_search             │
-                         │  • rag_ingest_document    │
-                         │  • rag_list_documents     │
-                         │  • rag_get_document       │
-                         │  • rag_delete_document    │
-                         │  • rag_get_stats          │
-                         └────────────┬────────────┘
-                                      │
-                         ┌────────────▼────────────┐
-                         │   RAG ENGINE (interno)    │
-                         │                           │
-                         │  ┌─────────┐ ┌─────────┐ │
-                         │  │ BGE-M3  │ │Reranker │ │
-                         │  │ Embed   │ │MiniLM   │ │
-                         │  └────┬────┘ └────┬────┘ │
-                         │       │           │       │
-                         │  ┌────▼───────────▼────┐ │
-                         │  │   Hybrid Retrieval   │ │
-                         │  │ Dense + Keyword + RRF │ │
-                         │  └──────────┬──────────┘ │
-                         └─────────────┼────────────┘
-                                       │
-                    ┌──────────────────▼──────────────────┐
-                    │      Oracle Autonomous AI DB         │
-                    │  • VECTOR index (dense, HNSW)       │
-                    │  • Oracle Text index (keyword)       │
-                    │  • 20 GB Always Free                 │
-                    └─────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│  INTERFACE LAYER                           │
+│  (consomem Core, MCP/CLI específico)      │
+│  ┌──────────────────────────────────────┐ │
+│  │ MCP Server :9090    │ CLI (local)    │ │
+│  │ (HTTP Protocol)     │ (Argparse)     │ │
+│  └────────────┬────────┴────────┬───────┘ │
+└───────────────┼─────────────────┼─────────┘
+                │                 │
+┌───────────────▼─────────────────▼─────────┐
+│  CORE LAYER                                │
+│  (business logic, zero interface deps)    │
+│  ┌──────────────────────────────────────┐ │
+│  │ engine.py        (RAG orchestration) │ │
+│  │ database.py      (Oracle persistence)│ │
+│  │ embeddings.py    (BGE-M3 embedding) │ │
+│  │ config.py        (configuration)    │ │
+│  │ utils.py         (file I/O)         │ │
+│  └──────────────────────────────────────┘ │
+└─────────────────┬──────────────────────────┘
+                  │
+        ┌─────────▼──────────┐
+        │ Oracle Autonomous   │
+        │ AI Database         │
+        │ (Vector + Text)     │
+        └────────────────────┘
+```
+
+**Regra SOLID**: Core nunca importa de Interface. Interface sempre importa de Core.
+
+### Interfaces (entrada)
+
+```
+LLM Generativa                    Usuário Local
+(Claude/GPT/etc)                  (terminal/script)
+        │                                 │
+        │ MCP Protocol (HTTP)             │ CLI (argparse)
+        │ :9090/mcp                       │
+        ▼                                 ▼
+┌──────────────────────┐         ┌──────────────┐
+│   MCP Server         │         │  CLI Module  │
+│   hermes_mcp         │         │  hermes-cli  │
+│                      │         │              │
+│  • rag_search        │         │  $ search    │
+│  • rag_ingest_*      │         │  $ ingest    │
+│  • rag_list_*        │         │  $ list      │
+│  • rag_delete_*      │         │  $ stats     │
+│  • rag_get_*         │         │  • delete    │
+│  • rag_get_stats     │         │  • ingest-file│
+└────────────┬─────────┘         └──────┬───────┘
+             │                          │
+             └──────────────┬───────────┘
+                            │
+                  ┌─────────▼────────┐
+                  │  Core RAG Engine │
+                  └──────────────────┘
 ```
 
 ---
@@ -337,4 +355,106 @@ async with streamablehttp_client("http://<vm-ip>:9090/mcp") as (r, w, _):
             "query": "requisitos progressão de regime",
             "top_k": 5
         })
+```
+
+---
+
+## 7. Interface CLI Local
+
+Além do MCP Server, o projeto oferece **CLI nativa** para acesso local sem dependências de rede:
+
+### 7.1 Comandos disponíveis
+
+```bash
+hermes-cli search "query" [-k 5] [--no-rerank] [--json]
+hermes-cli ingest -t "Title" -c "content" [--json]
+hermes-cli ingest -t "Title" --stdin < file.txt
+hermes-cli ingest-file ~/docs/documento.pdf [--json]
+hermes-cli list [--limit 20] [--offset 0] [--json]
+hermes-cli get <doc-id> [--json]
+hermes-cli delete <doc-id> [--yes]
+hermes-cli stats [--json]
+```
+
+**Vantagens**:
+- Zero dependências novas (usa argparse built-in)
+- Sem restrição `/data/` (acessa qualquer path)
+- Output JSON para piping e automação
+- ANSI colors (auto-disable em pipes)
+- Context manager com lazy imports (--help instantâneo)
+
+### 7.2 Uso típico
+
+```bash
+# Setup (local)
+pip install -e ".[dev]"
+
+# Search
+hermes-cli search "Lei de Execução Penal" -k 5 --json | jq '.results[0]'
+
+# Ingest
+hermes-cli ingest-file ~/docs/lep.pdf
+hermes-cli ingest -t "Doc" -c "content..." --json
+
+# List & manage
+hermes-cli list
+hermes-cli stats
+hermes-cli delete 3 --yes
+```
+
+---
+
+## 8. Testes Automatizados
+
+O projeto inclui framework pytest completo com **unit e integration tests**:
+
+### 8.1 Estrutura
+
+```
+tests/
+├── conftest.py           # Fixtures compartilhados
+├── test_chunking.py      # Unit tests (sem DB)
+├── test_config.py        # Unit tests (Settings)
+├── test_pipeline.py      # Integration tests (ingest → search)
+└── test_database.py      # Integration tests (CRUD + stats)
+```
+
+### 8.2 Rodando testes
+
+```bash
+# Unit tests (rápido, sem DB)
+pytest tests/test_chunking.py tests/test_config.py -v
+
+# Integration tests (requer DB + Redis)
+pytest tests/ -m integration -v
+
+# All tests
+pytest -v
+```
+
+### 8.3 Fixtures
+
+```python
+@pytest.fixture(scope="session")
+def db():
+    """Real DB connection para integration tests."""
+    db = Database()
+    db.connect()
+    db.init_schema()
+    yield db
+    db.close()
+
+@pytest.fixture(scope="session")
+def engine(db):
+    """RAGEngine com deps reais."""
+    emb = EmbeddingService()
+    return RAGEngine(db=db, emb=emb)
+
+@pytest.fixture
+def cleanup_docs(db):
+    """Auto-delete test documents após cada test."""
+    doc_ids = []
+    yield doc_ids
+    for doc_id in doc_ids:
+        db.delete_document(doc_id)
 ```
