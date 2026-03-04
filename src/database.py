@@ -80,29 +80,6 @@ INDEX_DDL = [
     """,
 ]
 
-# ── Migration DDL (applied after schema creation) ──────
-# For existing databases: convert chunk_text and enriched_text from VARCHAR2(4000) to CLOB
-# to support larger chunks (fixing ORA-12899 truncation errors on 4k+ character chunks)
-MIGRATION_DDL = [
-    """
-    BEGIN
-        EXECUTE IMMEDIATE 'DROP INDEX idx_chunk_text';
-        EXCEPTION WHEN OTHERS THEN
-            IF SQLCODE != -1418 THEN RAISE; END IF;
-    END;
-    """,
-    """
-    ALTER TABLE chunks MODIFY (chunk_text CLOB NOT NULL)
-    """,
-    """
-    ALTER TABLE chunks MODIFY (enriched_text CLOB)
-    """,
-    """
-    CREATE INDEX idx_chunk_text ON chunks(chunk_text)
-        INDEXTYPE IS CTXSYS.CONTEXT
-    """,
-]
-
 
 class Database:
     """Pool de conexões Oracle com operações RAG."""
@@ -135,11 +112,20 @@ class Database:
             self._pool.close(force=True)
             self._pool = None
 
+    @staticmethod
+    def _lob_type_handler(cursor, metadata):
+        """Converte CLOB/BLOB para str/bytes automaticamente."""
+        if metadata.type_code is oracledb.DB_TYPE_CLOB:
+            return cursor.var(oracledb.DB_TYPE_LONG, arraysize=cursor.arraysize)
+        if metadata.type_code is oracledb.DB_TYPE_BLOB:
+            return cursor.var(oracledb.DB_TYPE_LONG_RAW, arraysize=cursor.arraysize)
+
     @contextmanager
     def get_conn(self) -> Generator[oracledb.Connection, None, None]:
         """Obtém conexão do pool com auto-commit."""
         assert self._pool is not None, "Database não conectado. Chame connect()."
         conn = self._pool.acquire()
+        conn.outputtypehandler = self._lob_type_handler
         try:
             yield conn
             conn.commit()
@@ -149,8 +135,26 @@ class Database:
         finally:
             self._pool.release(conn)
 
+    def reset_schema(self) -> None:
+        """Dropa todas as tabelas e recria o schema do zero."""
+        drop_ddl = [
+            "BEGIN EXECUTE IMMEDIATE 'DROP INDEX idx_chunk_text'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1418 THEN RAISE; END IF; END;",
+            "BEGIN EXECUTE IMMEDIATE 'DROP INDEX idx_chunk_emb'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1418 THEN RAISE; END IF; END;",
+            "BEGIN EXECUTE IMMEDIATE 'DROP INDEX idx_chunk_doc'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1418 THEN RAISE; END IF; END;",
+            "BEGIN EXECUTE IMMEDIATE 'DROP INDEX idx_ingest_job_status'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1418 THEN RAISE; END IF; END;",
+            "BEGIN EXECUTE IMMEDIATE 'DROP TABLE chunks CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;",
+            "BEGIN EXECUTE IMMEDIATE 'DROP TABLE ingest_jobs CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;",
+            "BEGIN EXECUTE IMMEDIATE 'DROP TABLE documents CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;",
+        ]
+        with self.get_conn() as conn:
+            cursor = conn.cursor()
+            for ddl in drop_ddl:
+                cursor.execute(ddl)
+        logger.info("Schema anterior removido.")
+        self.init_schema()
+
     def init_schema(self) -> None:
-        """Cria tabelas e índices se não existirem, e aplica migrations."""
+        """Cria tabelas e índices se não existirem."""
         with self.get_conn() as conn:
             cursor = conn.cursor()
 
@@ -165,22 +169,7 @@ class Database:
                         continue
                     raise
 
-            # Execute migrations (idempotent, applied to existing databases)
-            for migration in MIGRATION_DDL:
-                try:
-                    cursor.execute(migration)
-                except oracledb.DatabaseError as e:
-                    err = e.args[0]
-                    # ORA-00955 = index/object already exists
-                    # ORA-01430 = column being modified is already CLOB
-                    # ORA-01442 = column to be modified must be empty to change datatype
-                    if hasattr(err, "code") and err.code in (955, 1430, 1442):
-                        logger.debug(f"Migration skipped (idempotent): {migration[:50]}...")
-                        continue
-                    # ORA-01418 is handled in PL/SQL block, shouldn't reach here
-                    raise
-
-        logger.info("Schema inicializado e migrations aplicadas.")
+        logger.info("Schema inicializado.")
 
     # ── Documents CRUD ──────────────────────────────
 
@@ -239,7 +228,7 @@ class Database:
                 "title": row[1],
                 "source": row[2],
                 "doc_type": row[3],
-                "metadata": json.loads(row[4]) if row[4] else {},
+                "metadata": row[4] if isinstance(row[4], dict) else json.loads(row[4]) if row[4] else {},
                 "created_at": row[5],
                 "chunk_count": row[6],
             }

@@ -113,10 +113,11 @@ LLM Generativa                    Usuário Local
 │                      │         │              │
 │  • rag_search        │         │  $ search    │
 │  • rag_ingest_*      │         │  $ ingest    │
+│  • rag_get_ingest_*  │         │  $ ingest-file│
 │  • rag_list_*        │         │  $ list      │
-│  • rag_delete_*      │         │  $ stats     │
-│  • rag_get_*         │         │  • delete    │
-│  • rag_get_stats     │         │  • ingest-file│
+│  • rag_get_*         │         │  $ stats     │
+│  • rag_delete_*      │         │  • delete    │
+│  • rag_get_stats     │         │  • reset-db  │
 └────────────┬─────────┘         └──────┬───────┘
              │                          │
              └──────────────┬───────────┘
@@ -145,12 +146,24 @@ CREATE TABLE chunks (
     id              NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id     NUMBER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index     NUMBER NOT NULL,
-    chunk_text      VARCHAR2(4000) NOT NULL,
-    enriched_text   VARCHAR2(4000),
+    chunk_text      CLOB           NOT NULL,
+    enriched_text   CLOB,
     token_count     NUMBER,
     embedding       VECTOR(1024, FLOAT32),
     created_at      TIMESTAMP DEFAULT SYSTIMESTAMP,
     CONSTRAINT uq_doc_chunk UNIQUE (document_id, chunk_index)
+);
+
+CREATE TABLE ingest_jobs (
+    job_id          VARCHAR2(36)   PRIMARY KEY,
+    document_id     NUMBER,
+    file_path       VARCHAR2(1000) NOT NULL,
+    status          VARCHAR2(20)   NOT NULL,  -- PENDING | PROCESSING | COMPLETED | FAILED
+    progress        NUMBER         DEFAULT 0,
+    total_chunks    NUMBER,
+    error_message   CLOB,
+    created_at      TIMESTAMP      DEFAULT SYSTIMESTAMP,
+    updated_at      TIMESTAMP      DEFAULT SYSTIMESTAMP
 );
 
 CREATE VECTOR INDEX idx_chunk_embedding ON chunks(embedding)
@@ -162,6 +175,8 @@ CREATE INDEX idx_chunk_text ON chunks(chunk_text)
     INDEXTYPE IS CTXSYS.CONTEXT;
 
 CREATE INDEX idx_chunk_doc_id ON chunks(document_id);
+
+CREATE INDEX idx_ingest_job_status ON ingest_jobs(status);
 
 -- Hybrid Search: vector + keyword em SQL único
 -- Chamado pelo RAG engine internamente
@@ -275,12 +290,14 @@ volumes:
 
 ### 6.1 Tools expostos
 
-O serviço expõe 6 ferramentas via MCP Protocol que qualquer LLM generativa pode invocar:
+O serviço expõe 8 ferramentas via MCP Protocol que qualquer LLM generativa pode invocar:
 
 | Tool | Descrição | Tipo | Annotations |
 |------|-----------|------|-------------|
 | `rag_search` | Busca semântica híbrida com reranking | Read | readOnly, idempotent |
 | `rag_ingest_document` | Indexa documento (chunk→embed→store) | Write | not readOnly |
+| `rag_ingest_file` | Ingere arquivo ou diretório da VM (`/data/`) | Write | not readOnly |
+| `rag_get_ingest_status` | Acompanha progresso de ingest assíncrono | Read | readOnly, idempotent |
 | `rag_list_documents` | Lista documentos com paginação | Read | readOnly, idempotent |
 | `rag_get_document` | Detalhes de um documento por ID | Read | readOnly, idempotent |
 | `rag_delete_document` | Exclui documento + chunks | Write | destructive, idempotent |
@@ -374,6 +391,7 @@ hermes-cli list [--limit 20] [--offset 0] [--json]
 hermes-cli get <doc-id> [--json]
 hermes-cli delete <doc-id> [--yes]
 hermes-cli stats [--json]
+hermes-cli reset-db [--yes]
 ```
 
 **Vantagens**:

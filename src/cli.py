@@ -293,6 +293,26 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reset_db(args: argparse.Namespace) -> int:
+    """Reset database — drop all tables and recreate schema."""
+    if not args.yes:
+        print("This will DELETE all data. Use --yes to confirm.")
+        return 1
+
+    from .database import Database
+
+    db = Database()
+    db.connect()
+    try:
+        print("Dropping all tables and recreating schema...")
+        db.reset_schema()
+        stats = db.get_stats()
+        print(f"Schema recreated. Documents: {stats['documents']}, Chunks: {stats['chunks']}")
+    finally:
+        db.close()
+    return 0
+
+
 def main() -> None:
     """Main CLI entrypoint."""
     parser = argparse.ArgumentParser(
@@ -348,6 +368,11 @@ def main() -> None:
     stats_parser = subparsers.add_parser("stats", help="Show statistics")
     stats_parser.add_argument("--json", action="store_true", help="JSON output")
     stats_parser.set_defaults(func=cmd_stats)
+
+    # reset-db
+    reset_parser = subparsers.add_parser("reset-db", help="Drop all tables and recreate schema")
+    reset_parser.add_argument("--yes", action="store_true", help="Confirm destructive operation")
+    reset_parser.set_defaults(func=cmd_reset_db)
 
     args = parser.parse_args()
     exit_code = args.func(args)

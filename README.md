@@ -54,6 +54,7 @@ Hermes não compete com o Oráculo — ele opera a seu serviço.
 | `rag_search` | Busca semântica híbrida (vector + keyword + reranking) | Read |
 | `rag_ingest_document` | Indexa documento (chunk → embed → store) | Write |
 | `rag_ingest_file` | Ingere arquivo ou diretório já na VM (`/data/`) | Write |
+| `rag_get_ingest_status` | Acompanha progresso de ingest assíncrono por `job_id` | Read |
 | `rag_list_documents` | Lista documentos com paginação e filtros | Read |
 | `rag_get_document` | Detalhes de um documento por ID | Read |
 | `rag_delete_document` | Exclui documento e todos os chunks | Write |
@@ -243,7 +244,10 @@ rag_ingest_file(path="/data/documento.pdf", title="Resolução SAP 45/2024", doc
 # Ou pasta inteira (recursivo):
 rag_ingest_file(path="/data/", doc_type="legislacao")
 
-# 4. Verificar ingestão via MCP
+# 4. Acompanhar progresso (ingest é assíncrono, retorna job_id)
+rag_get_ingest_status(job_id="<job_id retornado>")
+
+# 5. Verificar ingestão via MCP
 rag_get_stats()
 ```
 
@@ -269,6 +273,7 @@ hermes-cli list [--limit 20] [--offset 0]
 hermes-cli get <doc-id>
 hermes-cli delete <doc-id> [--yes]
 hermes-cli stats [--json]
+hermes-cli reset-db [--yes]          # Dropa e recria schema (destrutivo)
 
 # Exemplos
 hermes-cli search "requisitos progressão de regime" -k 3
