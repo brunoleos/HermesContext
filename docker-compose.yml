@@ -5,6 +5,7 @@ services:
     env_file: .env
     volumes:
       - /home/ubuntu/wallet:/wallet:ro
+      - /home/ubuntu/docs:/data:ro
       - models-cache:/root/.cache
     deploy:
       resources:

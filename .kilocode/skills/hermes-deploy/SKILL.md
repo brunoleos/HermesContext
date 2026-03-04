@@ -493,10 +493,25 @@ Use the Inspector to:
 | Get stats | `ssh -i $SSH_KEY ubuntu@$VM_IP "docker compose exec hermes python -m scripts.test_stats"` |
 | MCP Inspector | `bash scripts/mcp-inspector.sh` |
 
+## SSH Tunnel (Required for MCP Access)
+
+The MCP server is not directly accessible via the public IP (returns `421 Invalid Host header`). An SSH tunnel is required to access it from external machines.
+
+Before using any MCP tool or connecting any client, open a tunnel in a separate terminal:
+
+```bash
+ssh -i $SSH_KEY -L 9090:localhost:9090 -N ubuntu@$VM_IP
+```
+
+After this, the MCP server is available at `http://localhost:9090/mcp`.
+
+> **Note**: Each machine that needs access must open its own tunnel. Multiple tunnels can coexist without conflicts — each client's requests are isolated.
+
 ## Additional Resources
 
 For complete deployment documentation including initial Oracle Cloud setup, VM provisioning, and database configuration, refer to:
 - `DEPLOY_GUIDE.md` - Complete deployment guide with all phases
+- `MCP_SETUP.md` - MCP server connection setup (SSH tunnel + Claude Code)
 - `ARCHITECTURE.md` - System architecture details
-- `scripts/` - Utility scripts for deployment and maintenance
+- `scripts/mcp-inspector.sh` - Interactive MCP tool testing via browser
 - `src/server.py` - MCP server implementation with all tools

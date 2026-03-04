@@ -532,7 +532,36 @@ Se retornar JSON com `serverInfo` e `capabilities`, o MCP server está funcionan
 
 > ⚠️ **`curl http://localhost:9090/mcp` retorna 406 "Not Acceptable"** — isso é **normal**. O protocolo MCP usa Server-Sent Events e requer headers específicos (`Accept: application/json, text/event-stream`) com método POST. Um GET simples é rejeitado por design.
 
-### Passo 4.3 — Testar via MCP Inspector
+### Passo 4.3 — Conectar via SSH Tunnel (RECOMENDADO)
+
+Como o servidor MCP está em `0.0.0.0:9090` na VM, use **SSH tunnel** para acesso seguro a partir do seu PC local.
+
+No seu **PC local**, em um terminal separado:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 -L 9090:localhost:9090 -N ubuntu@147.15.91.57
+```
+
+O servidor estará disponível em: **`http://localhost:9090/mcp`**
+
+Verifique com tunnel ativo (em outro terminal):
+
+```bash
+curl -X POST http://localhost:9090/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+Configure seu cliente MCP para `http://localhost:9090/mcp` (Claude Code, Claude Desktop, Python SDK, etc.).
+
+**Vantagens:**
+- ✅ Criptografia SSH automática
+- ✅ Sem expor a VM diretamente na internet
+- ✅ Compatível com múltiplos clientes (cada um abre seu próprio túnel)
+- ✅ Simples de usar e gerenciar
+
+### Passo 4.4 — Testar via MCP Inspector
 
 O MCP Inspector é uma interface web para testar os tools interativamente. O projeto inclui um script automatizado que gerencia todo o workflow (VM + local).
 
@@ -595,46 +624,70 @@ Na interface do Inspector você pode:
 
 ## Fase 5 — Ingestão dos Documentos Reais
 
-### Passo 5.1 — Upload de documentos para a VM
+> A ingestão é feita via **SSH + script CLI** na VM — não via MCP tools.
+> Os MCP tools (`rag_search`, `rag_get_stats`, etc.) são usados para **consulta** dos documentos já indexados.
+
+### Passo 5.1 — Preparar pasta de documentos na VM
+
+```bash
+# Na VM (uma vez)
+ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> "mkdir -p ~/docs"
+```
+
+O `docker-compose.yml` já mapeia `~/docs` para `/data` no container:
+
+```yaml
+volumes:
+  - /home/ubuntu/docs:/data:ro
+```
+
+### Passo 5.2 — Upload de documentos para a VM
 
 No seu **PC local**:
 
 ```bash
-# Arquivo único
-scp -i ~/.ssh/id_ed25519 resolucao_45.txt ubuntu@<vm-ip>:~/docs/
+# Arquivo único (PDF, TXT, MD, CSV, JSON)
+scp -i ~/.ssh/id_ed25519 resolucao_45.pdf ubuntu@<vm-ip>:~/docs/
 
 # Diretório inteiro
 scp -ri ~/.ssh/id_ed25519 ./documentos/ ubuntu@<vm-ip>:~/docs/
 ```
 
-### Passo 5.2 — Ingerir arquivo único
+### Passo 5.3 — Ingerir arquivo único
+
+Na **VM** (ou via SSH do PC local):
 
 ```bash
+# Texto simples
 docker compose exec hermes python -m scripts.ingest_file \
     /data/resolucao_45.txt \
     --title "Resolução SAP 45/2024" \
     --type resolucao
+
+# PDF (extraído automaticamente via PyMuPDF)
+docker compose exec hermes python -m scripts.ingest_file \
+    /data/resolucao_45.pdf \
+    --title "Resolução SAP 45/2024" \
+    --type resolucao
 ```
 
-> O diretório `/data` dentro do container mapeia para o volume `ingest-data`.
-> Alternativamente, monte o diretório `~/docs` adicionando ao docker-compose:
-> ```yaml
-> volumes:
->   - /home/ubuntu/docs:/docs:ro
-> ```
-> E use `/docs/resolucao_45.txt` como path.
+Formatos suportados: `.txt`, `.md`, `.csv`, `.json`, `.pdf`
 
-### Passo 5.3 — Ingerir diretório inteiro
+> PDFs são parseados com PyMuPDF (`fitz`), que extrai texto página a página. O texto resultante é dividido em chunks de ~512 tokens, enriquecido com metadados e indexado com embeddings BGE-M3.
+
+### Passo 5.4 — Ingerir diretório inteiro
 
 ```bash
 docker compose exec hermes python -m scripts.ingest_file \
-    /docs/ \
+    /data/ \
     --type legislacao
 ```
 
-> Cada arquivo vira um documento separado. O título é inferido do nome do arquivo.
+Cada arquivo vira um documento separado. O título é inferido do nome do arquivo. A ingestão é sequencial com estatísticas por arquivo.
 
-### Passo 5.4 — Verificar ingestão
+### Passo 5.5 — Verificar ingestão
+
+Via script na VM:
 
 ```bash
 docker compose exec hermes python -c "
@@ -650,9 +703,21 @@ db.close()
 "
 ```
 
+Ou via MCP (com SSH tunnel ativo):
+
+```
+rag_get_stats → retorna total de documentos, chunks, tokens e distribuição por tipo
+```
+
 ---
 
 ## Fase 6 — Conectar a LLM
+
+> **Pré-requisito**: Abra o SSH tunnel antes de conectar qualquer cliente (ver Passo 4.3).
+>
+> ```bash
+> ssh -i ~/.ssh/id_ed25519 -L 9090:localhost:9090 -N ubuntu@<vm-ip>
+> ```
 
 ### Opção A: Claude Desktop
 
@@ -663,7 +728,7 @@ Edite `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) ou
   "mcpServers": {
     "hermes": {
       "type": "url",
-      "url": "http://<vm-ip>:9090/mcp"
+      "url": "http://localhost:9090/mcp"
     }
   }
 }
@@ -674,7 +739,7 @@ Reinicie o Claude Desktop. Os 6 tools RAG aparecem na interface.
 ### Opção B: Claude Code (CLI)
 
 ```bash
-claude mcp add hermes --transport http http://<vm-ip>:9090/mcp
+claude mcp add hermes --transport http http://localhost:9090/mcp
 ```
 
 ### Opção C: Qualquer agente MCP (Python)
@@ -683,7 +748,7 @@ claude mcp add hermes --transport http http://<vm-ip>:9090/mcp
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-async with streamablehttp_client("http://<vm-ip>:9090/mcp") as (r, w, _):
+async with streamablehttp_client("http://localhost:9090/mcp") as (r, w, _):
     async with ClientSession(r, w) as session:
         await session.initialize()
         result = await session.call_tool("rag_search", {

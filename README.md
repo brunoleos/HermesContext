@@ -77,25 +77,33 @@ docker compose up -d
 
 ### 3. Verificar
 ```bash
-# Logs
+# Logs (na VM)
 docker compose logs -f hermes
 
-# Health check (endpoint MCP ativo)
-curl -s http://localhost:9090/mcp | head
+# Testar endpoint MCP (na VM, com headers obrigatórios)
+curl -X POST http://localhost:9090/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 
-# Testar via MCP Inspector (script automatizado — abre túnel SSH + browser)
+# Testar via MCP Inspector (abre túnel SSH + browser para testar os tools)
 bash scripts/mcp-inspector.sh
 ```
 
 ## Configuração MCP Client
 
-O serviço roda como endpoint HTTP persistente na VM Oracle:
+O serviço roda como endpoint HTTP persistente na VM Oracle. Há duas formas de acessá-lo:
 
-```
-http://<vm-ip>:9090/mcp
+### Acesso via SSH Tunnel (recomendado)
+
+O servidor não é acessível diretamente pelo IP público (retorna `421 Invalid Host header`). Use SSH tunnel:
+
+```bash
+# Em um terminal separado, mantenha o túnel ativo:
+ssh -i ~/.ssh/id_ed25519 -L 9090:localhost:9090 -N ubuntu@<vm-ip>
 ```
 
-Qualquer LLM ou agente com suporte a MCP conecta diretamente nessa URL.
+Após abrir o túnel, o servidor fica acessível em `http://localhost:9090/mcp`.
 
 ### Claude Desktop (`claude_desktop_config.json`)
 
@@ -104,7 +112,7 @@ Qualquer LLM ou agente com suporte a MCP conecta diretamente nessa URL.
   "mcpServers": {
     "rag": {
       "type": "url",
-      "url": "http://<vm-ip>:9090/mcp"
+      "url": "http://localhost:9090/mcp"
     }
   }
 }
@@ -113,7 +121,7 @@ Qualquer LLM ou agente com suporte a MCP conecta diretamente nessa URL.
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add rag --transport http http://<vm-ip>:9090/mcp
+claude mcp add rag --transport http http://localhost:9090/mcp
 ```
 
 ### Anthropic API (em artifacts / apps)
@@ -141,7 +149,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-async with streamablehttp_client("http://<vm-ip>:9090/mcp") as (r, w, _):
+async with streamablehttp_client("http://localhost:9090/mcp") as (r, w, _):
     async with ClientSession(r, w) as session:
         await session.initialize()
         result = await session.call_tool("rag_search", {
@@ -173,6 +181,49 @@ MCP Server retorna:
 
 LLM → sintetiza resposta final para o usuário usando os trechos.
 ```
+
+## Workflows
+
+### Workflow A: Consulta (via MCP tools)
+
+Para buscar, listar e consultar documentos já indexados:
+
+```bash
+# 1. Abrir SSH tunnel (terminal separado, manter ativo)
+ssh -i ~/.ssh/id_ed25519 -L 9090:localhost:9090 -N ubuntu@<vm-ip>
+
+# 2. Usar MCP tools normalmente (Claude Code, Claude Desktop, Python SDK)
+#    rag_search, rag_list_documents, rag_get_document, rag_get_stats, rag_delete_document
+```
+
+### Workflow B: Ingestão de Arquivos (via SSH)
+
+Para ingerir PDFs, textos ou pastas inteiras na base RAG:
+
+```bash
+# 1. Criar pasta de docs na VM (uma vez)
+ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> "mkdir -p ~/docs"
+
+# 2. Upload do arquivo para a VM
+scp -i ~/.ssh/id_ed25519 documento.pdf ubuntu@<vm-ip>:~/docs/
+
+# 3. Ingerir arquivo único (PDF, TXT, MD, CSV, JSON)
+ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> \
+  "cd ~/HermesContext && docker compose exec hermes \
+   python -m scripts.ingest_file /data/documento.pdf \
+   --title 'Resolução SAP 45/2024' --type resolucao"
+
+# 4. Ou ingerir pasta inteira (todos os arquivos recursivamente)
+ssh -i ~/.ssh/id_ed25519 ubuntu@<vm-ip> \
+  "cd ~/HermesContext && docker compose exec hermes \
+   python -m scripts.ingest_file /data/ --type legislacao"
+
+# 5. Verificar ingestão via MCP
+#    rag_get_stats → total de documentos, chunks e tokens
+```
+
+> O volume `/data` dentro do container mapeia para `~/docs` na VM (`docker-compose.yml`).
+> PDFs são extraídos automaticamente via PyMuPDF. Formatos suportados: `.txt`, `.md`, `.csv`, `.json`, `.pdf`.
 
 ## Arquitetura
 
