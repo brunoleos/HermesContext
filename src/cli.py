@@ -234,6 +234,7 @@ def _ingest_file_with_progress(title: str, content: str, path: str) -> int:
                 doc_type=None,
                 metadata={"filename": os.path.basename(path), "size_chars": len(content)},
                 on_progress=on_progress,
+                embed_batch_size=4,
             )
 
     print(f"\n✅ File ingested")

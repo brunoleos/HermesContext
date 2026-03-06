@@ -137,12 +137,16 @@ class RAGEngine:
         doc_type: str | None = None,
         metadata: dict | None = None,
         on_progress: Callable[[str, int, int, str], None] | None = None,
+        embed_batch_size: int = 32,
     ) -> dict:
         """Pipeline completo: parse → chunk → embed → store.
 
         Args:
             on_progress: Optional callback (step_name, current, total, detail)
                          called at each pipeline step for progress reporting.
+            embed_batch_size: Number of chunks per embedding batch.  Lower values
+                              (e.g. 4) give finer progress callbacks at a small
+                              throughput cost; 32 maximises throughput.
 
         Returns dict com doc_id, chunk_count, tempo de processamento.
         """
@@ -176,13 +180,12 @@ class RAGEngine:
                         f"{len(enriched)} chunks enriched")
 
         # 4. Embedding — explicit batching for progress visibility
-        EMBED_BATCH = 32
         all_embeddings: list[list[float]] = []
-        for batch_start in range(0, len(enriched), EMBED_BATCH):
-            batch = enriched[batch_start:batch_start + EMBED_BATCH]
+        for batch_start in range(0, len(enriched), embed_batch_size):
+            batch = enriched[batch_start:batch_start + embed_batch_size]
             all_embeddings.extend(self.emb.embed_texts(batch))
             if on_progress:
-                done = min(batch_start + EMBED_BATCH, len(enriched))
+                done = min(batch_start + embed_batch_size, len(enriched))
                 on_progress("embed", done, len(enriched),
                             f"Embedding {done}/{len(enriched)}")
 
