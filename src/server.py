@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import uuid
+from datetime import datetime as _dt
 from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any, Optional
@@ -483,8 +484,23 @@ async def rag_get_ingest_status(
     progress = job["progress"] or 0
     icon = {"PENDING": "⏳", "PROCESSING": "🔄", "COMPLETED": "✅", "FAILED": "❌"}.get(status, "❓")
 
+    # Progress bar ASCII (20 chars = 100%)
+    filled = int(progress / 5)
+    bar = f"[{'█' * filled}{'░' * (20 - filled)}] {progress}%"
+
+    # Elapsed time (timestamps come as strings from TO_CHAR in get_ingest_job)
+    elapsed = ""
+    if job["created_at"] and job["updated_at"]:
+        try:
+            fmt = "%Y-%m-%d %H:%M:%S"
+            delta = _dt.strptime(job["updated_at"], fmt) - _dt.strptime(job["created_at"], fmt)
+            elapsed = f" ({int(delta.total_seconds())}s)"
+        except Exception:
+            pass
+
     lines = [
-        f"{icon} **Status**: {status} ({progress}%)",
+        f"{icon} **Status**: {status}{elapsed}",
+        f"  {bar}",
         f"- **job_id**: `{job['job_id']}`",
         f"- **Arquivo**: {job['file_path']}",
         f"- **Iniciado em**: {job['created_at']}",

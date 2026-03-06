@@ -87,7 +87,7 @@ The HermesContext MCP Server exposes 8 tools:
 **Purpose**: Check the status and progress of an async ingest job
 - Tracks jobs started by `rag_ingest_file`
 - **Parameters**: job_id (required, string returned by rag_ingest_file)
-- **Returns**: status (PENDING/PROCESSING/COMPLETED/FAILED), progress %, document_id, chunk_count, error_message
+- **Returns**: status (PENDING/PROCESSING/COMPLETED/FAILED), ASCII progress bar `[████░░░░] N%`, elapsed time `(Xs)`, document_id, chunk_count, error_message
 - **Typical latency**: <100ms
 
 ### 5. rag_list_documents
@@ -417,7 +417,8 @@ rag_get_ingest_status(job_id="a1b2c3d4-...")
 
 Completed response:
 ```
-✅ **Status**: COMPLETED (100%)
+✅ **Status**: COMPLETED (45s)
+  [████████████████████] 100%
 - **job_id**: `a1b2c3d4-...`
 - **document_id**: 42
 - **Chunks**: 18

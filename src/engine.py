@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import redis
@@ -136,8 +136,13 @@ class RAGEngine:
         source: str | None = None,
         doc_type: str | None = None,
         metadata: dict | None = None,
+        on_progress: Callable[[str, int, int, str], None] | None = None,
     ) -> dict:
         """Pipeline completo: parse → chunk → embed → store.
+
+        Args:
+            on_progress: Optional callback (step_name, current, total, detail)
+                         called at each pipeline step for progress reporting.
 
         Returns dict com doc_id, chunk_count, tempo de processamento.
         """
@@ -157,20 +162,34 @@ class RAGEngine:
                 "chunk_count": 0,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
             }
+        if on_progress:
+            on_progress("chunk", len(raw_chunks), len(raw_chunks),
+                        f"{len(raw_chunks)} chunks")
 
         # 3. Enrichment
         enriched = [
             self._enrich_chunk(c, title, i, doc_type)
             for i, c in enumerate(raw_chunks)
         ]
+        if on_progress:
+            on_progress("enrich", len(enriched), len(enriched),
+                        f"{len(enriched)} chunks enriched")
 
-        # 4. Embedding (local, sem rate limit)
-        embeddings = self.emb.embed_texts(enriched)
+        # 4. Embedding — explicit batching for progress visibility
+        EMBED_BATCH = 32
+        all_embeddings: list[list[float]] = []
+        for batch_start in range(0, len(enriched), EMBED_BATCH):
+            batch = enriched[batch_start:batch_start + EMBED_BATCH]
+            all_embeddings.extend(self.emb.embed_texts(batch))
+            if on_progress:
+                done = min(batch_start + EMBED_BATCH, len(enriched))
+                on_progress("embed", done, len(enriched),
+                            f"Embedding {done}/{len(enriched)}")
 
         # 5. Montar chunks para inserção
         chunk_records = []
         for i, (raw, enr, emb_vec) in enumerate(
-            zip(raw_chunks, enriched, embeddings)
+            zip(raw_chunks, enriched, all_embeddings)
         ):
             chunk_records.append(
                 {
@@ -184,6 +203,9 @@ class RAGEngine:
 
         # 6. Inserir no Oracle
         inserted = self.db.insert_chunks(doc_id, chunk_records)
+        if on_progress:
+            on_progress("store", inserted, inserted,
+                        f"{inserted} chunks stored")
 
         elapsed = int((time.monotonic() - t0) * 1000)
         logger.info(

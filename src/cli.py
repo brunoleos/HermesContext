@@ -13,7 +13,7 @@ Usage:
   hermes-cli search "query" [-k 5] [--no-rerank] [--json]
   hermes-cli ingest -t "Title" -c "content" [--json]
   hermes-cli ingest -t "Title" --stdin [--json]
-  hermes-cli ingest-file <path> [--json]
+  hermes-cli ingest-file <path> [--watch] [--json]
   hermes-cli list [--limit 20] [--offset 0] [--json]
   hermes-cli get <doc-id> [--json]
   hermes-cli delete <doc-id> [--yes]
@@ -147,6 +147,7 @@ def cmd_ingest_file(args: argparse.Namespace) -> int:
 
     path = args.path
     as_json = args.json
+    watch = getattr(args, "watch", False)
 
     if not os.path.exists(path):
         print(_format_with_color(f"Error: path not found: {path}", "red"), file=sys.stderr)
@@ -163,6 +164,9 @@ def cmd_ingest_file(args: argparse.Namespace) -> int:
         return 1
 
     title = os.path.splitext(os.path.basename(path))[0]
+
+    if watch and not as_json:
+        return _ingest_file_with_progress(title, content, path)
 
     with hermes_session() as (engine, _):
         result = engine.ingest_document(
@@ -182,6 +186,61 @@ def cmd_ingest_file(args: argparse.Namespace) -> int:
             print(f"   Chunks: {result['chunk_count']}")
             print(f"   Time: {result['elapsed_ms']}ms")
 
+    return 0
+
+
+def _ingest_file_with_progress(title: str, content: str, path: str) -> int:
+    """Ingest file with real-time TUI progress using rich."""
+    import os
+
+    try:
+        from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+    except ImportError:
+        print(_format_with_color(
+            "Error: 'rich' package required for --watch. Install with: pip install rich>=13.0.0",
+            "red",
+        ), file=sys.stderr)
+        return 1
+
+    step_labels = {
+        "chunk": "Chunking",
+        "enrich": "Enriching",
+        "embed": "Embedding",
+        "store": "Storing",
+    }
+
+    with hermes_session() as (engine, _):
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description:<12}"),
+            BarColumn(bar_width=30),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("[dim]{task.fields[detail]}"),
+            TimeElapsedColumn(),
+        ) as progress:
+            tasks = {
+                name: progress.add_task(label, total=None, detail="waiting...")
+                for name, label in step_labels.items()
+            }
+
+            def on_progress(step: str, current: int, total: int, detail: str) -> None:
+                if step in tasks:
+                    progress.update(tasks[step], completed=current, total=total, detail=detail)
+
+            result = engine.ingest_document(
+                title=title,
+                content=content,
+                source=path,
+                doc_type=None,
+                metadata={"filename": os.path.basename(path), "size_chars": len(content)},
+                on_progress=on_progress,
+            )
+
+    print(f"\n✅ File ingested")
+    print(f"   Path: {path}")
+    print(f"   ID: {result['document_id']}")
+    print(f"   Chunks: {result['chunk_count']}")
+    print(f"   Time: {result['elapsed_ms']}ms")
     return 0
 
 
@@ -342,6 +401,7 @@ def main() -> None:
     # ingest-file
     ingest_file_parser = subparsers.add_parser("ingest-file", help="Ingest file (txt, md, pdf, etc)")
     ingest_file_parser.add_argument("path", help="Path to file")
+    ingest_file_parser.add_argument("--watch", action="store_true", help="Show real-time progress")
     ingest_file_parser.add_argument("--json", action="store_true", help="JSON output")
     ingest_file_parser.set_defaults(func=cmd_ingest_file)
 

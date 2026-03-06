@@ -38,11 +38,12 @@ claude mcp list
 
 ## Tools Disponíveis
 
-Com o túnel ativo, os 7 tools estarão disponíveis em todas as conversas deste projeto:
+Com o túnel ativo, os 8 tools estarão disponíveis em todas as conversas deste projeto:
 
 - `rag_search` — busca híbrida (vetor + full-text) com reranking
 - `rag_ingest_document` — ingerir documento (aceita texto raw, ideal para documentos pequenos)
 - `rag_ingest_file` — ingerir arquivo já na VM em `/data/` (suporta PDF, TXT, MD, CSV, JSON; aceita arquivo ou diretório)
+- `rag_get_ingest_status` — acompanhar progresso de ingest assíncrono por `job_id` (barra ASCII + tempo decorrido)
 - `rag_list_documents` — listar documentos indexados
 - `rag_get_document` — obter documento por ID
 - `rag_get_stats` — estatísticas (total docs, chunks, embeddings)

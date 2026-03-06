@@ -297,7 +297,7 @@ O serviço expõe 8 ferramentas via MCP Protocol que qualquer LLM generativa pod
 | `rag_search` | Busca semântica híbrida com reranking | Read | readOnly, idempotent |
 | `rag_ingest_document` | Indexa documento (chunk→embed→store) | Write | not readOnly |
 | `rag_ingest_file` | Ingere arquivo ou diretório da VM (`/data/`) | Write | not readOnly |
-| `rag_get_ingest_status` | Acompanha progresso de ingest assíncrono | Read | readOnly, idempotent |
+| `rag_get_ingest_status` | Acompanha progresso de ingest assíncrono (barra ASCII + elapsed) | Read | readOnly, idempotent |
 | `rag_list_documents` | Lista documentos com paginação | Read | readOnly, idempotent |
 | `rag_get_document` | Detalhes de um documento por ID | Read | readOnly, idempotent |
 | `rag_delete_document` | Exclui documento + chunks | Write | destructive, idempotent |
@@ -386,7 +386,7 @@ Além do MCP Server, o projeto oferece **CLI nativa** para acesso local sem depe
 hermes-cli search "query" [-k 5] [--no-rerank] [--json]
 hermes-cli ingest -t "Title" -c "content" [--json]
 hermes-cli ingest -t "Title" --stdin < file.txt
-hermes-cli ingest-file ~/docs/documento.pdf [--json]
+hermes-cli ingest-file ~/docs/documento.pdf [--watch] [--json]
 hermes-cli list [--limit 20] [--offset 0] [--json]
 hermes-cli get <doc-id> [--json]
 hermes-cli delete <doc-id> [--yes]
@@ -411,7 +411,7 @@ pip install -e ".[dev]"
 hermes-cli search "Lei de Execução Penal" -k 5 --json | jq '.results[0]'
 
 # Ingest
-hermes-cli ingest-file ~/docs/lep.pdf
+hermes-cli ingest-file ~/docs/lep.pdf --watch
 hermes-cli ingest -t "Doc" -c "content..." --json
 
 # List & manage

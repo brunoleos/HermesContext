@@ -199,6 +199,7 @@ A tool `rag_ingest_file` é **assíncrona** — retorna um `job_id` imediatament
 ```
 rag_get_ingest_status(job_id="<job_id>")
 ```
+O retorno inclui barra de progresso ASCII e tempo decorrido.
 
 ### Etapa 4 — Verificar resultado
 
